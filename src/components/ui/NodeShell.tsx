@@ -40,7 +40,7 @@ export default function NodeShell({ children, label, icon, badge, badgeColor, se
   return (
     <div
       className={[
-        'relative w-[220px] rounded-xl overflow-hidden',
+        'relative w-[220px] rounded-xl',
         'bg-[#0f1117] border border-slate-800',
         'shadow-xl shadow-black/50',
         selected ? `ring-1 ${ringStyles[badgeColor]}` : '',
@@ -48,7 +48,7 @@ export default function NodeShell({ children, label, icon, badge, badgeColor, se
       ].join(' ')}
     >
       {/* Gradient top accent */}
-      <div className={`absolute top-0 left-0 right-0 h-px bg-gradient-to-r ${topBorderStyles[badgeColor]}`} />
+      <div className={`absolute top-0 left-0 right-0 h-px bg-gradient-to-r ${topBorderStyles[badgeColor]} rounded-t-xl overflow-hidden`} />
 
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-3 pb-2">

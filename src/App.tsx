@@ -10,14 +10,20 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type NodeChange,
+  type EdgeChange,
   type NodeTypes,
 } from '@xyflow/react'
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import WhaleWatcherNode from './components/nodes/WhaleWatcherNode'
 import PriceAlertNode from './components/nodes/PriceAlertNode'
 import UniswapSwapNode from './components/nodes/UniswapSwapNode'
 import Sidebar from './components/sidebar/Sidebar'
 import Topbar from './components/ui/Topbar'
+import ContextMenu from './components/ui/ContextMenu'
+import MobileWarning from './components/ui/MobileWarning'
+import { useToast } from './components/ui/Toast'
+import { useUndoRedo } from './hooks/useUndoRedo'
 import type { NodeType } from './components/sidebar/Sidebar'
 
 const nodeTypes: NodeTypes = {
@@ -62,15 +68,51 @@ const defaultEdgeOptions = {
   style: { stroke: '#6366f1', strokeWidth: 2 },
 }
 
+interface ContextMenuState {
+  x: number
+  y: number
+  nodeId: string
+}
+
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const reactFlowInstance = useRef<Parameters<typeof ReactFlow>[0] & { screenToFlowPosition?: (pos: { x: number; y: number }) => { x: number; y: number } }>(null)
 
+  const { toast } = useToast()
+  const { takeSnapshot, undo, redo, canUndo, canRedo } = useUndoRedo(nodes, edges)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      const hasRemove = changes.some((c) => c.type === 'remove')
+      if (hasRemove) takeSnapshot()
+      onNodesChange(changes)
+    },
+    [onNodesChange, takeSnapshot],
+  )
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      const hasRemove = changes.some((c) => c.type === 'remove')
+      if (hasRemove) takeSnapshot()
+      onEdgesChange(changes)
+    },
+    [onEdgesChange, takeSnapshot],
+  )
+
   const onConnect = useCallback(
-    (connection: Connection) => setEdges((eds) => addEdge({ ...connection, animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } }, eds)),
-    [setEdges],
+    (connection: Connection) => {
+      takeSnapshot()
+      setEdges((eds) =>
+        addEdge(
+          { ...connection, animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+          eds,
+        ),
+      )
+    },
+    [setEdges, takeSnapshot],
   )
 
   const onDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -84,6 +126,8 @@ export default function App() {
       const type = event.dataTransfer.getData('application/reactflow') as NodeType
 
       if (!type || !reactFlowWrapper.current) return
+
+      takeSnapshot()
 
       const bounds = reactFlowWrapper.current.getBoundingClientRect()
       const position = (reactFlowInstance.current as any)?.screenToFlowPosition?.({
@@ -106,31 +150,108 @@ export default function App() {
 
       setNodes((nds) => [...nds, newNode])
     },
-    [setNodes],
+    [setNodes, takeSnapshot],
   )
 
+  const onNodeDragStart = useCallback(() => {
+    takeSnapshot()
+  }, [takeSnapshot])
+
   const handleClear = useCallback(() => {
+    takeSnapshot()
     setNodes([])
     setEdges([])
-  }, [setNodes, setEdges])
+  }, [setNodes, setEdges, takeSnapshot])
+
+  const handleUndo = useCallback(() => {
+    return undo(setNodes, setEdges)
+  }, [undo, setNodes, setEdges])
+
+  const handleRedo = useCallback(() => {
+    return redo(setNodes, setEdges)
+  }, [redo, setNodes, setEdges])
+
+  // Context menu handlers
+  const onNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      event.preventDefault()
+      setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id })
+    },
+    [],
+  )
+
+  const handleDuplicate = useCallback(
+    (nodeId: string) => {
+      const node = nodes.find((n) => n.id === nodeId)
+      if (!node) return
+      takeSnapshot()
+      const newNode: Node = {
+        id: getNextId(),
+        type: node.type,
+        position: { x: node.position.x + 30, y: node.position.y + 30 },
+        data: { ...node.data },
+      }
+      setNodes((nds) => [...nds, newNode])
+      toast('Node duplicated', 'success')
+    },
+    [nodes, setNodes, takeSnapshot, toast],
+  )
+
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      takeSnapshot()
+      setNodes((nds) => nds.filter((n) => n.id !== nodeId))
+      setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId))
+      toast('Node deleted', 'info')
+    },
+    [setNodes, setEdges, takeSnapshot, toast],
+  )
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        handleUndo()
+      }
+      if (mod && (e.key === 'Z' || (e.key === 'z' && e.shiftKey) || e.key === 'y')) {
+        e.preventDefault()
+        handleRedo()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [handleUndo, handleRedo])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#0a0a0f]">
+      <MobileWarning />
       <Sidebar />
 
       <div className="flex flex-col flex-1 min-w-0">
-        <Topbar nodes={nodes} edges={edges} onClear={handleClear} />
+        <Topbar
+          nodes={nodes}
+          edges={edges}
+          onClear={handleClear}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+        />
 
         <div ref={reactFlowWrapper} className="flex-1 relative">
           <ReactFlow
             ref={reactFlowInstance as any}
             nodes={nodes}
             edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
             onConnect={onConnect}
             onDragOver={onDragOver}
             onDrop={onDrop}
+            onNodeDragStart={onNodeDragStart}
+            onNodeContextMenu={onNodeContextMenu}
             nodeTypes={nodeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
             fitView
@@ -171,6 +292,18 @@ export default function App() {
                 <p className="text-xs text-slate-700 mt-1">Drag from the sidebar to build your agent</p>
               </div>
             </div>
+          )}
+
+          {/* Node context menu */}
+          {contextMenu && (
+            <ContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              nodeId={contextMenu.nodeId}
+              onClose={() => setContextMenu(null)}
+              onDuplicate={handleDuplicate}
+              onDelete={handleDeleteNode}
+            />
           )}
         </div>
       </div>

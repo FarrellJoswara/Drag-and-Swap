@@ -1,5 +1,5 @@
-import { Bell, Eye, Filter, Repeat2, Shield, Zap } from 'lucide-react'
-import type { DragEvent } from 'react'
+import { Bell, Eye, Filter, Repeat2, Search, Shield, Zap } from 'lucide-react'
+import { useState, useMemo, type DragEvent } from 'react'
 
 export type NodeType = 'whaleWatcher' | 'priceAlert' | 'uniswapSwap'
 
@@ -125,7 +125,20 @@ function Section({ title, icon, blocks }: SectionProps) {
   )
 }
 
+function filterBlocks(blocks: BlockDef[], q: string) {
+  if (!q) return blocks
+  const lower = q.toLowerCase()
+  return blocks.filter(
+    (b) => b.label.toLowerCase().includes(lower) || b.description.toLowerCase().includes(lower),
+  )
+}
+
 export default function Sidebar() {
+  const [query, setQuery] = useState('')
+  const filteredTriggers = useMemo(() => filterBlocks(TRIGGERS, query), [query])
+  const filteredActions = useMemo(() => filterBlocks(ACTIONS, query), [query])
+  const filteredFilters = useMemo(() => filterBlocks(FILTERS, query), [query])
+
   return (
     <aside className="w-[220px] flex-shrink-0 h-full bg-[#0a0a0f] border-r border-slate-800/60 flex flex-col">
       {/* Logo / Brand */}
@@ -141,18 +154,36 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Search hint */}
+      {/* Search */}
       <div className="px-3 py-3">
-        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg">
-          <span className="text-[10px] text-slate-600">Drag blocks onto canvas →</span>
+        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg focus-within:border-indigo-500/50 transition-colors">
+          <Search size={12} className="text-slate-600 flex-shrink-0" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search blocks…"
+            className="bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none w-full"
+          />
         </div>
       </div>
 
       {/* Block sections */}
       <div className="flex-1 px-3 pb-4 flex flex-col gap-5 overflow-y-auto">
-        <Section title="Triggers" icon={<Zap size={11} />} blocks={TRIGGERS} />
-        <Section title="Actions" icon={<Repeat2 size={11} />} blocks={ACTIONS} />
-        <Section title="Filters" icon={<Filter size={11} />} blocks={FILTERS} />
+        {filteredTriggers.length > 0 && (
+          <Section title="Triggers" icon={<Zap size={11} />} blocks={filteredTriggers} />
+        )}
+        {filteredActions.length > 0 && (
+          <Section title="Actions" icon={<Repeat2 size={11} />} blocks={filteredActions} />
+        )}
+        {filteredFilters.length > 0 && (
+          <Section title="Filters" icon={<Filter size={11} />} blocks={filteredFilters} />
+        )}
+        {filteredTriggers.length === 0 && filteredActions.length === 0 && filteredFilters.length === 0 && (
+          <div className="text-center py-8">
+            <p className="text-[10px] text-slate-600">No blocks match "{query}"</p>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
