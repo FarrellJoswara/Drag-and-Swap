@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "uniswap": "tsx src/services/uniswap.ts"
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.14.1",
@@ -16,6 +17,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.0",
+    "tsx": "^4.21.0",
     "viem": "^2.46.2"
   },
   "devDependencies": {

@@ -24,6 +24,13 @@ function resolveVariables(
   return nodeOutputs[outputName] ?? value
 }
 
+const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/
+
+export type RunContext = {
+  /** Connected wallet address (e.g. from Privy). Used when swap block's Wallet Address is empty. */
+  walletAddress?: string | null
+}
+
 /**
  * Run all downstream nodes from a trigger. Resolves inputs from upstream outputs
  * and variable refs {{nodeId.outputName}}. Modular: triggers don't need to know
@@ -33,6 +40,7 @@ export async function runDownstreamGraph(
   model: ConnectedModel,
   triggerNodeId: string,
   triggerOutputs: Record<string, string>,
+  context?: RunContext,
 ): Promise<void> {
   const outputs = new Map<string, Record<string, string>>()
   outputs.set(triggerNodeId, triggerOutputs)
@@ -89,6 +97,14 @@ export async function runDownstreamGraph(
       inputs[field.name] = resolveVariables(val, outputs)
     }
 
+    // Swap block: use connected wallet when Wallet Address is empty or invalid
+    if (def.type === 'swap' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
+      const swapper = (inputs.swapper ?? '').trim()
+      if (!swapper || !ADDRESS_REGEX.test(swapper)) {
+        inputs.swapper = context.walletAddress
+      }
+    }
+
     try {
       const result = await def.run(inputs)
       outputs.set(nodeId, result)
@@ -113,6 +129,7 @@ export function subscribeToAgent(
   agentId: string,
   model: ConnectedModel,
   onTrigger: (payload: TriggerPayload) => void,
+  context?: RunContext,
 ): () => void {
   const cleanups: Array<() => void> = []
 
@@ -129,7 +146,7 @@ export function subscribeToAgent(
 
     const unsub = def.subscribe!(inputs, (outputs) => {
       const payload: TriggerPayload = { agentId, nodeId: node.id, outputs }
-      runDownstreamGraph(model, node.id, outputs).catch((err) =>
+      runDownstreamGraph(model, node.id, outputs, context).catch((err) =>
         console.error('[runAgent] Downstream execution failed:', err),
       )
       onTrigger(payload)

@@ -11,6 +11,7 @@ import NodeShell from '../ui/NodeShell'
 import { buildConnectedModel } from '../../utils/buildConnectedModel'
 import { runDownstreamGraph } from '../../lib/runAgent'
 import { useToast } from '../ui/Toast'
+import { useWalletAddress } from '../../hooks/useWalletAddress'
 
 /** Get color class for output type */
 function getTypeColor(type?: string): string {
@@ -35,6 +36,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const definition = getBlock(blockType)
   const { setNodes, getNodes, getEdges } = useReactFlow()
   const { toast } = useToast()
+  const walletAddress = useWalletAddress()
 
   // #region agent log
   fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'GenericNode.tsx:33',message:'GenericNode rendering',data:{nodeId:id,blockType,hasDefinition:!!definition,inputCount:definition?.inputs.length,outputCount:definition?.outputs.length,category:definition?.category},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
@@ -101,13 +103,13 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     const edges = getEdges()
     const model = buildConnectedModel(nodes, edges)
     try {
-      await runDownstreamGraph(model, id, { triggered: 'true' })
+      await runDownstreamGraph(model, id, { triggered: 'true' }, { walletAddress: walletAddress ?? undefined })
       toast('Agent ran successfully', 'success')
     } catch (err) {
       console.error('[manualTrigger] Run failed:', err)
       toast(err instanceof Error ? err.message : 'Run failed', 'error')
     }
-  }, [id, getNodes, getEdges, toast])
+  }, [id, getNodes, getEdges, toast, walletAddress])
 
   return (
     <div className="relative">

@@ -33,7 +33,7 @@ import {
   type HyperliquidStreamMessage,
 } from '../services/hyperliquid'
 import { normalizeStreamEventToUnifiedOutputs } from '../services/hyperliquid/streams'
-import { swapQuote, executeSwap, tokenPrice, priceAlert } from '../services/uniswap'
+import { swap } from '../services/uniswap'
 import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
 // ─── Hyperliquid Blocks (QuickNode Data Streams) ───────────
@@ -320,29 +320,8 @@ registerBlock({
 // ─── Uniswap Blocks ─────────────────────────────────────
 
 registerBlock({
-  type: 'swapQuote',
-  label: 'Swap Quote',
-  description: 'Get a token swap quote from Uniswap V3',
-  category: 'action',
-  service: 'uniswap',
-  color: 'rose',
-  icon: 'arrowLeftRight',
-  inputs: [
-    { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
-    { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
-    { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'expectedOutput', label: 'You Receive' },
-    { name: 'priceImpact', label: 'Price Impact' },
-    { name: 'route', label: 'Route Path' },
-  ],
-  run: async (inputs) => swapQuote(inputs),
-})
-
-registerBlock({
-  type: 'executeSwap',
-  label: 'Execute Swap',
+  type: 'swap',
+  label: 'Swap',
   description: 'Execute a token swap on Uniswap V3',
   category: 'action',
   service: 'uniswap',
@@ -352,54 +331,15 @@ registerBlock({
     { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
     { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
     { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
-    { name: 'slippage', label: 'Max Slippage (%)', type: 'slider', min: 0.1, max: 50, step: 0.1, defaultValue: '0.5' },
+    { name: 'chainId', label: 'Chain', type: 'select', options: ['1', '10', '8453', '42161', '137'], defaultValue: '1' },
+    { name: 'swapper', label: 'Wallet Address', type: 'address', placeholder: '0x... or use connected wallet', allowVariable: true },
   ],
   outputs: [
     { name: 'txHash', label: 'Transaction Hash' },
     { name: 'amountOut', label: 'Amount Received' },
     { name: 'gasUsed', label: 'Gas Used' },
   ],
-  run: async (inputs) => executeSwap(inputs),
-})
-
-registerBlock({
-  type: 'tokenPrice',
-  label: 'Token Price',
-  description: 'Get current token price in USD',
-  category: 'action',
-  service: 'uniswap',
-  color: 'rose',
-  icon: 'barChart',
-  inputs: [
-    { name: 'token', label: 'Token', type: 'tokenSelect', defaultValue: 'ETH' },
-  ],
-  outputs: [
-    { name: 'price', label: 'Price (USD)' },
-    { name: 'change24h', label: '24h Change (%)' },
-  ],
-  run: async (inputs) => tokenPrice(inputs),
-})
-
-// ─── Price / Alert Blocks ────────────────────────────────
-
-registerBlock({
-  type: 'priceAlert',
-  label: 'Price Alert',
-  description: 'Trigger when token price crosses threshold',
-  category: 'trigger',
-  service: 'uniswap',
-  color: 'rose',
-  icon: 'bell',
-  inputs: [
-    { name: 'token', label: 'Token', type: 'tokenSelect', tokens: ['ETH', 'USDC', 'WBTC', 'ARB', 'OP'], defaultValue: 'ETH' },
-    { name: 'condition', label: 'Condition', type: 'select', options: ['above', 'below', 'crosses'], defaultValue: 'above' },
-    { name: 'price', label: 'Price (USD)', type: 'number', placeholder: '3500', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'currentPrice', label: 'Current Price' },
-    { name: 'triggered', label: 'Triggered' },
-  ],
-  run: async (inputs) => priceAlert(inputs),
+  run: async (inputs) => swap(inputs),
 })
 
 // ─── Filter Blocks ───────────────────────────────────────

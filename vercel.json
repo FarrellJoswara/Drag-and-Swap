@@ -1,5 +1,11 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/uniswap/:path*",
+      "destination": "https://trade-api.gateway.uniswap.org/v1/:path*"
+    }
+  ]
 }

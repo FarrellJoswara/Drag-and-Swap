@@ -4,12 +4,14 @@ import AgentsHome from './pages/AgentsHome'
 import './lib/blocks'
 import { useAgents } from './contexts/AgentsContext'
 import { useActiveAgentRunners } from './hooks/useActiveAgentRunners'
+import { useWalletAddress } from './hooks/useWalletAddress'
 
 function AgentRunners() {
   const { agents } = useAgents()
+  const walletAddress = useWalletAddress()
   useActiveAgentRunners(agents, (payload) => {
     console.log('[Agent trigger]', payload)
-  })
+  }, { walletAddress: walletAddress ?? undefined })
   return null
 }
 
