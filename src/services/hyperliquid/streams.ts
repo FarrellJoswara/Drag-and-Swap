@@ -13,6 +13,7 @@ import type {
   TwapEvent,
   WriterActionEvent,
 } from './types'
+import { debugIngest } from '../../utils/debugIngest'
 
 export type {
   HyperliquidStreamType,
@@ -25,8 +26,20 @@ export type {
   WriterActionEvent,
 } from './types'
 
-const WS_URL =
+const RAW_WS_URL =
   (import.meta.env.VITE_QUICKNODE_HYPERLIQUID_WS_URL as string | undefined) ?? ''
+
+// QuickNode HyperCore WSS requires path /hypercore/ws (see QuickNode Hyperliquid endpoint docs)
+function normalizeWsUrl(url: string): string {
+  if (!url) return url
+  if (url.includes('quiknode.pro') && !url.includes('/hypercore/ws')) {
+    const base = url.replace(/\/?$/, '')
+    return `${base}/hypercore/ws`
+  }
+  return url
+}
+
+const WS_URL = normalizeWsUrl(RAW_WS_URL)
 
 let wsId = 0
 
@@ -54,6 +67,20 @@ export function subscribe(
     console.warn('VITE_QUICKNODE_HYPERLIQUID_WS_URL is not set — streaming disabled')
     return () => {}
   }
+
+  // #region agent log
+  debugIngest({
+    location: 'streams.ts:subscribe',
+    message: 'WS subscribe attempt',
+    data: {
+      streamType,
+      normalizedUrlHasPath: WS_URL.includes('/hypercore/ws'),
+      rawUrlHadPath: RAW_WS_URL.includes('/hypercore/ws'),
+    },
+    timestamp: Date.now(),
+    hypothesisId: 'H1',
+  })
+  // #endregion
 
   const ws = new WebSocket(WS_URL)
   const id = ++wsId
@@ -84,6 +111,15 @@ export function subscribe(
   })
 
   ws.onopen = () => {
+    // #region agent log
+    debugIngest({
+      location: 'streams.ts:ws.onopen',
+      message: 'Hyperliquid WS connected',
+      data: { id, streamType },
+      timestamp: Date.now(),
+      hypothesisId: 'H1',
+    })
+    // #endregion
     const payload: Record<string, unknown> = {
       jsonrpc: '2.0',
       method: 'hl_subscribe',
@@ -110,8 +146,28 @@ export function subscribe(
     }
   }
 
-  ws.onerror = (e) => console.error('[Hyperliquid WS] error', e)
-  ws.onclose = () => {
+  ws.onerror = (e) => {
+    // #region agent log
+    debugIngest({
+      location: 'streams.ts:ws.onerror',
+      message: 'Hyperliquid WS error',
+      data: { id, streamType, type: (e as Event).type },
+      timestamp: Date.now(),
+      hypothesisId: 'H1',
+    })
+    // #endregion
+    console.error('[Hyperliquid WS] error', e)
+  }
+  ws.onclose = (ev) => {
+    // #region agent log
+    debugIngest({
+      location: 'streams.ts:ws.onclose',
+      message: 'Hyperliquid WS closed',
+      data: { id, streamType, code: ev.code, reason: ev.reason },
+      timestamp: Date.now(),
+      hypothesisId: 'H1',
+    })
+    // #endregion
     // Clean up subscription when socket closes
     activeSubscriptions.delete(id)
   }

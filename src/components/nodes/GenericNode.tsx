@@ -134,7 +134,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               <BlockInput
                 key={field.name}
                 field={field}
-                value={inputs[field.name]}
+                value={inputs[field.name] ?? ''}
                 onChange={(val) => updateInput(field.name, val)}
                 color={definition.color}
               />

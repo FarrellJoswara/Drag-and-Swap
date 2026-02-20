@@ -43,6 +43,16 @@ function getNextId() {
   return `node-${++idCounter}`
 }
 
+/** Set idCounter so the next getNextId() won't collide with loaded node IDs. */
+function resetNodeIdCounterAfterLoad(nodes: Node[]) {
+  let max = 0
+  for (const n of nodes) {
+    const match = n.id.match(/^node-(\d+)$/)
+    if (match) max = Math.max(max, parseInt(match[1], 10))
+  }
+  if (max > 0) idCounter = max
+}
+
 const defaultEdgeOptions = {
   animated: true,
   style: { stroke: '#6366f1', strokeWidth: 2 },
@@ -58,57 +68,125 @@ const NODE_SPACING_X = 280
 const NODE_SPACING_Y = 140
 
 /** Build flowData from model when flowData is missing (legacy agents). Uses spacing consistent with editor. */
-function modelToFlowData(model: { nodes: { id: string; type: string; data: Record<string, unknown> }[]; edges: { id: string; source: string; target: string }[] }): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = model.nodes.map((n, i) => ({
-    id: n.id,
-    type: (n.type || 'generic') as 'generic',
-    position: { x: 120 + (i % 3) * NODE_SPACING_X, y: 120 + Math.floor(i / 3) * NODE_SPACING_Y },
-    data: n.data,
-  }))
-  const edges: Edge[] = model.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    animated: true,
-    style: { stroke: '#6366f1', strokeWidth: 2 },
-  }))
+function modelToFlowData(model: {
+  nodes: { id: string; type: string; data: Record<string, unknown> }[]
+  edges: { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }[]
+}): { nodes: Node[]; edges: Edge[] } {
+  // Dedupe nodes by id (keep first)
+  const seenNodeIds = new Set<string>()
+  const nodes: Node[] = []
+  model.nodes.forEach((n) => {
+    if (seenNodeIds.has(n.id)) return
+    seenNodeIds.add(n.id)
+    nodes.push({
+      id: n.id,
+      type: (n.type || 'generic') as 'generic',
+      position: { x: 120 + (nodes.length % 3) * NODE_SPACING_X, y: 120 + Math.floor(nodes.length / 3) * NODE_SPACING_Y },
+      data: n.data,
+    })
+  })
+  // Edges: only where source/target exist, preserve handle IDs, dedupe by id
+  const seenEdgeIds = new Set<string>()
+  const rawEdges: Edge[] = model.edges
+    .filter((e) => seenNodeIds.has(e.source) && seenNodeIds.has(e.target) && !seenEdgeIds.has(e.id) && (seenEdgeIds.add(e.id), true))
+    .map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      ...(e.sourceHandle != null && { sourceHandle: e.sourceHandle }),
+      ...(e.targetHandle != null && { targetHandle: e.targetHandle }),
+      animated: true,
+      style: { stroke: '#6366f1', strokeWidth: 2 },
+    }))
+  const normalized = normalizeEdgeHandles(nodes, rawEdges)
+  const edges = validateAndFilterEdges(nodes, normalized)
   return { nodes, edges }
 }
 
-/** Remove edges that reference non-existent target handles (e.g. slippage, swapper on swap block) */
-function filterInvalidEdges(nodes: Node[], edges: Edge[]): Edge[] {
+/** Assign default sourceHandle/targetHandle when missing so React Flow never sees undefined. Drops edges that can't be normalized. */
+function normalizeEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  const result: Edge[] = []
+  for (const e of edges) {
+    const sourceNode = nodeMap.get(e.source)
+    const targetNode = nodeMap.get(e.target)
+    if (!sourceNode || !targetNode) continue
+    const sourceBlock = (sourceNode.data?.blockType as string) ?? sourceNode.type
+    const targetBlock = (targetNode.data?.blockType as string) ?? targetNode.type
+    const defSource = getBlock(sourceBlock)
+    const defTarget = getBlock(targetBlock)
+    if (!defSource || !defTarget) continue
+    let sourceHandle = e.sourceHandle && String(e.sourceHandle).trim() ? e.sourceHandle : undefined
+    let targetHandle = e.targetHandle && String(e.targetHandle).trim() ? e.targetHandle : undefined
+    if (!sourceHandle) {
+      const first = defSource.outputs[0]
+      sourceHandle = first?.name
+    }
+    if (!targetHandle) {
+      const firstConnectable = defTarget.inputs.find((i) => i.type !== 'walletAddress')
+      targetHandle = firstConnectable?.name
+    }
+    if (!sourceHandle || !targetHandle) continue
+    result.push({ ...e, sourceHandle, targetHandle })
+  }
+  return result
+}
+
+/** Keep only edges whose sourceHandle and targetHandle exist on the block defs and target is connectable (not walletAddress). */
+function validateAndFilterEdges(nodes: Node[], edges: Edge[]): Edge[] {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
   return edges.filter((e) => {
-    if (!e.targetHandle) return true
+    if (!e.sourceHandle || !e.targetHandle) return false
+    const sourceNode = nodeMap.get(e.source)
     const targetNode = nodeMap.get(e.target)
-    if (!targetNode) return true
-    const blockType = (targetNode.data?.blockType as string) ?? targetNode.type
-    const def = getBlock(blockType)
-    if (!def) return true
-    const input = def.inputs.find((i) => i.name === e.targetHandle)
-    if (!input) return false
-    if (input.type === 'walletAddress') return false
+    if (!sourceNode || !targetNode) return false
+    const sourceBlock = (sourceNode.data?.blockType as string) ?? sourceNode.type
+    const targetBlock = (targetNode.data?.blockType as string) ?? targetNode.type
+    const defSource = getBlock(sourceBlock)
+    const defTarget = getBlock(targetBlock)
+    if (!defSource || !defTarget) return false
+    const sourceOk = defSource.outputs.some((o) => o.name === e.sourceHandle)
+    if (!sourceOk) return false
+    const targetInput = defTarget.inputs.find((i) => i.name === e.targetHandle)
+    if (!targetInput || targetInput.type === 'walletAddress') return false
     return true
   })
 }
 
-/** Ensure node positions are valid { x, y } objects (handles stored/legacy data) */
+/** Ensure node positions are valid { x, y } objects; dedupe nodes/edges by id. */
 function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes: Node[]; edges: Edge[] } {
-  const nodes = flowData.nodes.map((n) => ({
-    ...n,
-    position: {
-      x: typeof n.position?.x === 'number' ? n.position.x : 0,
-      y: typeof n.position?.y === 'number' ? n.position.y : 0,
-    },
-  }))
-  const edges = filterInvalidEdges(
-    nodes,
-    flowData.edges.map((e) => ({
+  // Dedupe nodes by id (keep first)
+  const seenNodeIds = new Set<string>()
+  const nodes: Node[] = flowData.nodes
+    .filter((n) => {
+      if (seenNodeIds.has(n.id)) return false
+      seenNodeIds.add(n.id)
+      return true
+    })
+    .map((n) => ({
+      ...n,
+      position: {
+        x: typeof n.position?.x === 'number' ? n.position.x : 0,
+        y: typeof n.position?.y === 'number' ? n.position.y : 0,
+      },
+    }))
+  // Edges: only where source/target in deduped set, dedupe by id, preserve sourceHandle/targetHandle
+  const seenEdgeIds = new Set<string>()
+  const rawEdges = flowData.edges
+    .filter((e) => {
+      if (!seenNodeIds.has(e.source) || !seenNodeIds.has(e.target)) return false
+      const edgeId = e.id ?? `${e.source}-${e.target}-${e.sourceHandle ?? ''}-${e.targetHandle ?? ''}`
+      if (seenEdgeIds.has(edgeId)) return false
+      seenEdgeIds.add(edgeId)
+      return true
+    })
+    .map((e) => ({
       ...e,
       animated: e.animated ?? true,
       style: e.style ?? { stroke: '#6366f1', strokeWidth: 2 },
-    })),
-  )
+    }))
+  const normalized = normalizeEdgeHandles(nodes, rawEdges)
+  const edges = validateAndFilterEdges(nodes, normalized)
   return { nodes, edges }
 }
 
@@ -129,8 +207,10 @@ export default function App() {
   nodesRef.current = nodes
   const edgesRef = useRef(edges)
   edgesRef.current = edges
+  const getAgentByIdRef = useRef(getAgentById)
+  getAgentByIdRef.current = getAgentById
 
-  // Load agent when editing, clear when creating new
+  // Load agent when editing, clear when creating new. Only re-run when route/wallet changes, not when agents list updates.
   useEffect(() => {
     if (!agentId) {
       setNodes(emptyNodes)
@@ -138,15 +218,16 @@ export default function App() {
       return
     }
     if (!walletAddress) return
-    const agent = getAgentById(agentId)
+    const agent = getAgentByIdRef.current(agentId)
     if (!agent) return
     const raw = agent.flowData
       ? agent.flowData
       : modelToFlowData(agent.model)
     const { nodes: n, edges: e } = normalizeFlowData(raw)
+    resetNodeIdCounterAfterLoad(n)
     setNodes(n)
     setEdges(e)
-  }, [agentId, walletAddress, getAgentById, setNodes, setEdges])
+  }, [agentId, walletAddress])
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -393,7 +474,7 @@ export default function App() {
             data: { ...n.data },
           }
         })
-        const newEdges = clipEdges
+        const newEdgesRaw = clipEdges
           .filter((ed) => idMap.has(ed.source) && idMap.has(ed.target))
           .map((ed) => ({
             ...ed,
@@ -401,6 +482,7 @@ export default function App() {
             source: idMap.get(ed.source)!,
             target: idMap.get(ed.target)!,
           }))
+        const newEdges = validateAndFilterEdges(newNodes, normalizeEdgeHandles(newNodes, newEdgesRaw))
 
         setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), ...newNodes])
         setEdges((eds) => [...eds, ...newEdges])
@@ -432,7 +514,7 @@ export default function App() {
           }
         })
         const selectedIds = new Set(selected.map((n) => n.id))
-        const newEdges = currentEdges
+        const newEdgesRaw = currentEdges
           .filter((ed) => selectedIds.has(ed.source) && selectedIds.has(ed.target))
           .map((ed) => ({
             ...ed,
@@ -440,6 +522,7 @@ export default function App() {
             source: idMap.get(ed.source)!,
             target: idMap.get(ed.target)!,
           }))
+        const newEdges = validateAndFilterEdges(newNodes, normalizeEdgeHandles(newNodes, newEdgesRaw))
 
         setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), ...newNodes])
         setEdges((eds) => [...eds, ...newEdges])

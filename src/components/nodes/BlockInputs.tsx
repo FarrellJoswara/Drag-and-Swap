@@ -39,13 +39,14 @@ function DropZone({
   onChange,
   children,
 }: {
-  value: string
+  value?: string
   onChange: (v: string) => void
   children: React.ReactNode
 }) {
   const [dragOver, setDragOver] = useState(false)
-  const isVar = value.startsWith('{{') && value.endsWith('}}')
-  const varName = isVar ? value.slice(2, -2) : null
+  const str = value ?? ''
+  const isVar = str.startsWith('{{') && str.endsWith('}}')
+  const varName = isVar ? str.slice(2, -2) : null
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     if (e.dataTransfer.types.includes('application/variable')) {
@@ -89,12 +90,12 @@ function DropZone({
 
 export interface BlockInputProps {
   field: InputField
-  value: string
+  value?: string
   onChange: (val: string) => void
   color: BlockColor
 }
 
-function TextInput({ field, value, onChange, color }: BlockInputProps) {
+function TextInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   return (
     <div className="flex flex-col gap-1">
@@ -112,7 +113,7 @@ function TextInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
-function NumberInput({ field, value, onChange, color }: BlockInputProps) {
+function NumberInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   return (
     <div className="flex flex-col gap-1">
@@ -133,7 +134,7 @@ function NumberInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
-function SelectInput({ field, value, onChange, color }: BlockInputProps) {
+function SelectInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   return (
     <div className="flex flex-col gap-1">
@@ -156,7 +157,7 @@ function SelectInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
-function ToggleInput({ field, value, onChange, color }: BlockInputProps) {
+function ToggleInput({ field, value = '', onChange, color }: BlockInputProps) {
   const on = value === 'true'
   const accent = accentBgClass[color]
   return (
@@ -179,7 +180,7 @@ function ToggleInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
-function TextareaInput({ field, value, onChange, color }: BlockInputProps) {
+function TextareaInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   return (
     <div className="flex flex-col gap-1">
@@ -197,7 +198,7 @@ function TextareaInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
-function AddressInput({ field, value, onChange, color }: BlockInputProps) {
+function AddressInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   return (
     <div className="flex flex-col gap-1">
@@ -252,7 +253,7 @@ function WalletAddressInput({ field, color }: BlockInputProps) {
   )
 }
 
-function SliderInput({ field, value, onChange, color }: BlockInputProps) {
+function SliderInput({ field, value = '', onChange, color }: BlockInputProps) {
   const min = field.min ?? 0
   const max = field.max ?? 100
   const step = field.step ?? 1
@@ -291,7 +292,7 @@ function SliderInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
-function TokenSelectInput({ field, value, onChange, color }: BlockInputProps) {
+function TokenSelectInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   const tokens = field.tokens ?? DEFAULT_TOKENS
 
@@ -316,7 +317,7 @@ function TokenSelectInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
-function KeyValueInput({ field, value, onChange, color }: BlockInputProps) {
+function KeyValueInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   const pairs: [string, string][] = (() => {
     try { return JSON.parse(value || '[]') }
