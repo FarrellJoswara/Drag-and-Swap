@@ -44,7 +44,6 @@ import {
   systemTransferMonitor,
 } from '../services/hyperliquid'
 import { swapQuote, executeSwap, tokenPrice, priceAlert } from '../services/uniswap'
-import { dataStore } from '../utils/supabase'
 import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
 /** Placeholder run for streaming triggers — use useHyperstreamSockets when running the flow. */
@@ -58,7 +57,7 @@ registerBlock({
   description: 'Monitor large wallet activity on EVM chains',
   category: 'trigger',
   service: 'quicknode',
-  color: 'violet',
+  color: 'emerald',
   icon: 'eye',
   inputs: [
     { name: 'walletAddress', label: 'Wallet Address', type: 'address', allowVariable: true },
@@ -77,10 +76,9 @@ registerBlock({
   type: 'ethBalance',
   label: 'ETH Balance',
   description: 'Check ETH balance of a wallet. Use as trigger or mid-flow action.',
-  category: 'trigger',
-  categories: ['trigger', 'action'],
+  category: 'action',
   service: 'quicknode',
-  color: 'violet',
+  color: 'emerald',
   icon: 'wallet',
   inputs: [
     { name: 'walletAddress', label: 'Wallet Address', type: 'address', allowVariable: true },
@@ -96,10 +94,9 @@ registerBlock({
   type: 'txHistory',
   label: 'TX History',
   description: 'Get recent transactions for a wallet. Use as trigger or mid-flow action.',
-  category: 'trigger',
-  categories: ['trigger', 'action'],
+  category: 'action',
   service: 'quicknode',
-  color: 'violet',
+  color: 'emerald',
   icon: 'clock',
   inputs: [
     { name: 'walletAddress', label: 'Wallet Address', type: 'address', allowVariable: true },
@@ -121,7 +118,7 @@ registerBlock({
   description: 'Trigger when a trade executes on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'activity',
   inputs: [
     { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'HYPE', 'ARB', 'OP', 'DOGE', 'AVAX', 'LINK', 'MATIC'], defaultValue: 'BTC', allowVariable: true },
@@ -151,7 +148,7 @@ registerBlock({
   description: 'Trigger when a liquidation occurs on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'zap',
   inputs: [
     { name: 'coin', label: 'Coin (optional)', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'CRV', 'HYPE'], allowVariable: true },
@@ -178,7 +175,7 @@ registerBlock({
   description: 'Trigger when a large trade executes on Hyperliquid. Filter by min size in useHyperstreamSockets.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'eye',
   inputs: [
     { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'HYPE'], defaultValue: 'BTC', allowVariable: true },
@@ -206,7 +203,7 @@ registerBlock({
   description: 'Fetch recent trades for a coin via Hyperliquid JSON-RPC.',
   category: 'filter',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'activity',
   inputs: [
     { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'HYPE'], defaultValue: 'BTC', allowVariable: true },
@@ -226,7 +223,7 @@ registerBlock({
   description: 'Trigger when an order is filled on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'bell',
   inputs: [
     { name: 'user', label: 'User Address', type: 'address', allowVariable: true },
@@ -257,7 +254,7 @@ registerBlock({
   description: 'Trigger when an order is rejected on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'shield',
   inputs: [
     { name: 'user', label: 'User Address', type: 'address', allowVariable: true },
@@ -283,7 +280,7 @@ registerBlock({
   description: 'Trigger on order book changes on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'barChart',
   inputs: [
     { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL'], defaultValue: 'BTC', allowVariable: true },
@@ -310,7 +307,7 @@ registerBlock({
   description: 'Fetch recent order book updates from Hyperliquid. Stream name: book.',
   category: 'filter',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'barChart',
   inputs: [
     { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL'], defaultValue: 'BTC', allowVariable: true },
@@ -332,7 +329,7 @@ registerBlock({
   description: 'Trigger on TWAP order status changes on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'clock',
   inputs: [
     { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
@@ -363,7 +360,7 @@ registerBlock({
   description: 'Trigger when a USDC deposit lands on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'wallet',
   inputs: [
     { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
@@ -387,7 +384,7 @@ registerBlock({
   description: 'Trigger on USDC withdrawals from Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'send',
   inputs: [
     { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
@@ -411,7 +408,7 @@ registerBlock({
   description: 'Trigger on internal transfers on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'arrowLeftRight',
   inputs: [
     { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
@@ -438,7 +435,7 @@ registerBlock({
   description: 'Trigger on vault deposit/withdrawal on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'database',
   inputs: [
     { name: 'vault', label: 'Vault (optional)', type: 'address', allowVariable: true },
@@ -464,7 +461,7 @@ registerBlock({
   description: 'Trigger on hourly funding on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'clock',
   inputs: [
     { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
@@ -486,7 +483,7 @@ registerBlock({
   description: 'Trigger on cross-chain deposit/withdrawal on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'globe',
   inputs: [
     { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
@@ -511,7 +508,7 @@ registerBlock({
   description: 'Trigger on staking delegation/undelegation on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'shield',
   inputs: [
     { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
@@ -536,7 +533,7 @@ registerBlock({
   description: 'Fetch recent events from Hyperliquid. Filter by type for mid-flow checks.',
   category: 'filter',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'filter',
   inputs: [
     { name: 'eventType', label: 'Event Type', type: 'select', options: ['deposit', 'withdraw', 'send', 'spotTransfer', 'vaultDeposit', 'vaultWithdraw', 'funding', 'all'], defaultValue: 'all' },
@@ -556,7 +553,7 @@ registerBlock({
   description: 'Trigger on system spot token transfers / bridge on Hyperliquid. Use useHyperstreamSockets for real-time.',
   category: 'trigger',
   service: 'hyperliquid',
-  color: 'violet',
+  color: 'emerald',
   icon: 'globe',
   inputs: [
     { name: 'user', label: 'System User (optional)', type: 'address', allowVariable: true },
@@ -585,7 +582,7 @@ registerBlock({
   description: 'Get a token swap quote from Uniswap V3',
   category: 'action',
   service: 'uniswap',
-  color: 'emerald',
+  color: 'rose',
   icon: 'arrowLeftRight',
   inputs: [
     { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
@@ -606,7 +603,7 @@ registerBlock({
   description: 'Execute a token swap on Uniswap V3',
   category: 'action',
   service: 'uniswap',
-  color: 'emerald',
+  color: 'rose',
   icon: 'zap',
   inputs: [
     { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
@@ -628,7 +625,7 @@ registerBlock({
   description: 'Get current token price in USD',
   category: 'action',
   service: 'uniswap',
-  color: 'emerald',
+  color: 'rose',
   icon: 'barChart',
   inputs: [
     { name: 'token', label: 'Token', type: 'tokenSelect', defaultValue: 'ETH' },
@@ -648,7 +645,7 @@ registerBlock({
   description: 'Trigger when token price crosses threshold',
   category: 'trigger',
   service: 'uniswap',
-  color: 'emerald',
+  color: 'rose',
   icon: 'bell',
   inputs: [
     { name: 'token', label: 'Token', type: 'tokenSelect', tokens: ['ETH', 'USDC', 'WBTC', 'ARB', 'OP'], defaultValue: 'ETH' },
@@ -689,7 +686,7 @@ registerBlock({
   description: 'Skip when gas is too high',
   category: 'filter',
   service: 'quicknode',
-  color: 'violet',
+  color: 'emerald',
   icon: 'shield',
   inputs: [
     { name: 'maxGwei', label: 'Max Gas (Gwei)', type: 'slider', min: 5, max: 200, step: 5, defaultValue: '50' },
@@ -760,24 +757,6 @@ registerBlock({
   ],
   run: async (inputs) => sendToken(inputs),
 })
-
-registerBlock({
-  type: 'dataStore',
-  label: 'Data Store',
-  description: 'Save key/value data for later use',
-  category: 'action',
-  service: 'supabase',
-  color: 'blue',
-  icon: 'database',
-  inputs: [
-    { name: 'data', label: 'Data Pairs', type: 'keyValue', defaultValue: '[]' },
-  ],
-  outputs: [
-    { name: 'saved', label: 'Save Confirmed' },
-  ],
-  run: async (inputs) => dataStore(inputs),
-})
-
 
 registerBlock({
   type: 'timeLoop',

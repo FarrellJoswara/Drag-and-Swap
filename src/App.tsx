@@ -451,6 +451,28 @@ export default function App() {
             />
           </ReactFlow>
 
+          {/* Color legend for minimap - positioned above the minimap */}
+          <div
+            className="absolute flex flex-col gap-1 rounded-lg bg-slate-900/95 border border-slate-700/80 px-2.5 py-2 pointer-events-none"
+            style={{ bottom: 15, left: 100 }}
+          >
+            <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Block colors</span>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#eab308' }} />
+                <span className="text-[10px] text-slate-400">General</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#059669' }} />
+                <span className="text-[10px] text-slate-400">QuickNode / Hyperliquid</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f43f5e' }} />
+                <span className="text-[10px] text-slate-400">Uniswap</span>
+              </div>
+            </div>
+          </div>
+
           {nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">

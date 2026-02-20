@@ -64,7 +64,7 @@ export interface OutputField {
 
 export type BlockCategory = 'trigger' | 'action' | 'filter'
 export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose' | 'yellow'
-export type BlockService = 'quicknode' | 'hyperliquid' | 'uniswap' | 'supabase'
+export type BlockService = 'quicknode' | 'hyperliquid' | 'uniswap'
 
 /** Called when an interrupt-based trigger fires. */
 export type TriggerCallback = (outputs: Record<string, string>) => void
@@ -82,7 +82,7 @@ export interface BlockDefinition {
   categories?: BlockCategory[]
   color: BlockColor
   icon: string
-  /** Service folder (quicknode, hyperliquid, uniswap, supabase). Omit for general blocks. */
+  /** Service folder (quicknode, hyperliquid, uniswap). Omit for general blocks. */
   service?: BlockService
   inputs: InputField[]
   outputs: OutputField[]

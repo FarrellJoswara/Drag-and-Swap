@@ -31,27 +31,27 @@ const ringStyles: Record<BadgeColor, string> = {
 }
 
 const topBorderStyles: Record<BadgeColor, string> = {
-  violet: 'from-violet-500/60 to-violet-500/0',
-  amber:  'from-amber-500/60 to-amber-500/0',
-  emerald:'from-emerald-500/60 to-emerald-500/0',
-  blue:   'from-blue-500/60 to-blue-500/0',
-  rose:   'from-rose-500/60 to-rose-500/0',
-  yellow: 'from-yellow-500/60 to-yellow-500/0',
+  violet: 'from-violet-500/50 to-violet-500/0',
+  amber:  'from-amber-500/50 to-amber-500/0',
+  emerald:'from-emerald-500/50 to-emerald-500/0',
+  blue:   'from-blue-500/50 to-blue-500/0',
+  rose:   'from-rose-500/50 to-rose-500/0',
+  yellow: 'from-yellow-500/40 to-yellow-500/0',
 }
 
 export default function NodeShell({ children, label, icon, badge, badgeColor, selected }: NodeShellProps) {
   return (
     <div
       className={[
-        'relative w-[220px] rounded-xl',
+        'relative w-[220px] rounded-xl overflow-hidden',
         'bg-[#0f1117] border border-slate-800',
         'shadow-xl shadow-black/50',
         selected ? `ring-1 ${ringStyles[badgeColor]}` : '',
         'transition-all duration-150',
       ].join(' ')}
     >
-      {/* Gradient top accent */}
-      <div className={`absolute top-0 left-0 right-0 h-px bg-gradient-to-r ${topBorderStyles[badgeColor]} rounded-t-xl overflow-hidden`} />
+      {/* Gradient top accent - clipped by parent overflow-hidden */}
+      <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${topBorderStyles[badgeColor]}`} />
 
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-3 pb-2">
