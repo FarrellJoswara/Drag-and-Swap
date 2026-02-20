@@ -176,7 +176,7 @@ export default function Sidebar() {
           </div>
         </div>
         <Link
-          to="/agents"
+          to="/"
           className="mt-3 flex items-center gap-2 px-2.5 py-2 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
         >
           <LayoutGrid size={12} />

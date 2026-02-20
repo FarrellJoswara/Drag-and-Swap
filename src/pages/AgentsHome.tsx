@@ -8,7 +8,7 @@ import AgentCard from '../components/agents/AgentCard'
 export default function AgentsHome() {
   const { ready, authenticated, login, logout } = usePrivy()
   const walletAddress = useWalletAddress()
-  const { agents, toggleActive, removeAgent } = useAgents(walletAddress)
+  const { agents, toggleActive, removeAgent, updateAgent } = useAgents(walletAddress)
 
   if (!ready) {
     return (
@@ -82,7 +82,7 @@ export default function AgentsHome() {
             Disconnect
           </button>
           <Link
-            to="/"
+            to="/new"
             className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors"
           >
             <Plus size={14} />
@@ -107,11 +107,11 @@ export default function AgentsHome() {
                 then click Deploy Agent. Your wallet must be connected.
               </p>
               <Link
-                to="/"
+                to="/new"
                 className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors"
               >
                 <ArrowRight size={14} />
-                Go to Canvas
+                Create your first agent
               </Link>
             </div>
           ) : (
@@ -128,6 +128,8 @@ export default function AgentsHome() {
                     agent={agent}
                     onToggleActive={toggleActive}
                     onRemove={removeAgent}
+                    onRename={(id, name) => updateAgent(id, { name })}
+                    editPath={`/agent/${agent.id}`}
                   />
                 ))}
               </div>

@@ -6,8 +6,9 @@ export default function Router() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<App />} />
-        <Route path="/agents" element={<AgentsHome />} />
+        <Route path="/" element={<AgentsHome />} />
+        <Route path="/new" element={<App />} />
+        <Route path="/agent/:id" element={<App />} />
       </Routes>
     </BrowserRouter>
   )

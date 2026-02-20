@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Activity, CheckCircle, Redo2, Rocket, Trash2, Undo2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Edge, Node } from '@xyflow/react'
@@ -6,8 +7,10 @@ import { useToast } from './Toast'
 import { usePrivy } from '@privy-io/react-auth'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
 import { useAgents } from '../../hooks/useAgents'
+import DeployNameModal from './DeployNameModal'
 
 interface TopbarProps {
+  agentId?: string
   nodes: Node[]
   edges: Edge[]
   onClear: () => void
@@ -18,6 +21,7 @@ interface TopbarProps {
 }
 
 export default function Topbar({
+  agentId,
   nodes,
   edges,
   onClear,
@@ -29,9 +33,12 @@ export default function Topbar({
   const { toast } = useToast()
   const { authenticated, login } = usePrivy()
   const walletAddress = useWalletAddress()
-  const { addAgent } = useAgents(walletAddress)
+  const { addAgent, updateAgentModel, getAgentById } = useAgents(walletAddress)
+  const [showDeployModal, setShowDeployModal] = useState(false)
 
-  const handleDeploy = () => {
+  const defaultDeployName = `Agent ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+
+  const doDeploy = (name?: string) => {
     if (nodes.length === 0) {
       toast('Add some blocks before deploying', 'warning')
       return
@@ -41,14 +48,37 @@ export default function Topbar({
       return
     }
     const connectedModel = buildConnectedModel(nodes, edges)
-    const name = `Agent ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    addAgent({
-      name,
-      model: connectedModel,
-      walletAddress,
-      isActive: false,
-    })
-    toast(`Agent deployed — view in My Agents`, 'success')
+    const flowData = { nodes, edges }
+
+    if (agentId) {
+      const agent = getAgentById(agentId)
+      if (agent) {
+        updateAgentModel(agentId, {
+          model: connectedModel,
+          flowData,
+          name: agent.name,
+        })
+        toast('Agent updated', 'success')
+      }
+    } else {
+      addAgent({
+        name: name ?? defaultDeployName,
+        model: connectedModel,
+        flowData,
+        walletAddress,
+        isActive: true,
+      })
+      toast('Agent deployed', 'success')
+      setShowDeployModal(false)
+    }
+  }
+
+  const handleDeploy = () => {
+    if (agentId) {
+      doDeploy()
+    } else {
+      setShowDeployModal(true)
+    }
   }
 
   const handleClear = () => {
@@ -124,7 +154,7 @@ export default function Topbar({
         )}
 
         <Link
-          to="/agents"
+          to="/"
           className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
         >
           My Agents
@@ -141,13 +171,20 @@ export default function Topbar({
             onClick={handleDeploy}
             disabled={!walletAddress}
             title={!walletAddress ? 'Connect wallet to deploy' : undefined}
-          className="flex items-center gap-2 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
+            className="flex items-center gap-2 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Rocket size={12} />
-            Deploy Agent
+            {agentId ? 'Redeploy' : 'Deploy Agent'}
           </button>
         )}
       </div>
+
+      <DeployNameModal
+        isOpen={showDeployModal}
+        defaultName={defaultDeployName}
+        onConfirm={(name) => doDeploy(name)}
+        onCancel={() => setShowDeployModal(false)}
+      />
     </header>
   )
 }

@@ -1,5 +1,7 @@
 import { useCallback, useState, useEffect } from 'react'
+import type { ConnectedModel } from '../utils/buildConnectedModel'
 import type { DeployedAgent } from '../types/agent'
+import type { Edge, Node } from '@xyflow/react'
 
 const STORAGE_KEY = 'drag-and-swap-agents'
 
@@ -53,6 +55,41 @@ export function useAgents(walletAddress: string | null) {
     [walletAddress],
   )
 
+  const getAgentById = useCallback(
+    (id: string): DeployedAgent | undefined => {
+      return agents.find((a) => a.id === id)
+    },
+    [agents],
+  )
+
+  const updateAgentModel = useCallback(
+    (
+      id: string,
+      updates: {
+        model: ConnectedModel
+        flowData: { nodes: Node[]; edges: Edge[] }
+        name?: string
+      },
+    ) => {
+      if (!walletAddress) return
+      const now = new Date().toISOString()
+      setAgents((prev) => {
+        const next = prev.map((a) =>
+          a.id === id
+            ? {
+                ...a,
+                ...updates,
+                deployedAt: now,
+              }
+            : a,
+        )
+        saveAgents(walletAddress, next)
+        return next
+      })
+    },
+    [walletAddress],
+  )
+
   const toggleActive = useCallback(
     (id: string) => {
       if (!walletAddress) return
@@ -96,6 +133,8 @@ export function useAgents(walletAddress: string | null) {
   return {
     agents,
     addAgent,
+    getAgentById,
+    updateAgentModel,
     toggleActive,
     removeAgent,
     updateAgent,

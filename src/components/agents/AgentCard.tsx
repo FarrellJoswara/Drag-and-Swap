@@ -1,11 +1,14 @@
-import { Power, PowerOff, Trash2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { Power, PowerOff, Pencil, Trash2 } from 'lucide-react'
 import type { DeployedAgent } from '../../types/agent'
 
 interface AgentCardProps {
   agent: DeployedAgent
   onToggleActive: (id: string) => void
   onRemove: (id: string) => void
-  onOpen?: (id: string) => void
+  onRename: (id: string, name: string) => void
+  editPath: string
 }
 
 function formatDate(iso: string) {
@@ -22,15 +25,37 @@ export default function AgentCard({
   agent,
   onToggleActive,
   onRemove,
-  onOpen,
+  onRename,
+  editPath,
 }: AgentCardProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editName, setEditName] = useState(agent.name)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isEditing) {
+      setEditName(agent.name)
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+  }, [isEditing, agent.name])
+
+  const handleSaveRename = () => {
+    const trimmed = editName.trim()
+    if (trimmed && trimmed !== agent.name) {
+      onRename(agent.id, trimmed)
+    }
+    setIsEditing(false)
+  }
+
   const nodeCount = agent.model.nodes.length
   const edgeCount = agent.model.edges.length
 
   return (
-    <article
+    <Link
+      to={editPath}
       className={`
-        group relative rounded-xl border transition-all duration-200
+        block group relative rounded-xl border transition-all duration-200
         bg-[#0f1117] border-slate-800/80
         hover:border-slate-700/80 hover:shadow-lg hover:shadow-black/20
         ${agent.isActive ? 'ring-1 ring-emerald-500/30' : ''}
@@ -38,10 +63,43 @@ export default function AgentCard({
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-slate-100 truncate">
-              {agent.name}
-            </h3>
+          <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+            {isEditing ? (
+              <input
+                ref={inputRef}
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={handleSaveRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    inputRef.current?.blur()
+                  }
+                  if (e.key === 'Escape') {
+                    setEditName(agent.name)
+                    setIsEditing(false)
+                    inputRef.current?.blur()
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full px-2 py-1 text-sm font-semibold bg-slate-900 border border-slate-700 rounded text-slate-100 outline-none focus:border-indigo-500/50"
+              />
+            ) : (
+              <div
+                className="flex items-center gap-1.5 cursor-pointer hover:bg-slate-800/50 rounded px-1 -mx-1 py-0.5 -my-0.5 transition-colors"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setIsEditing(true)
+                }}
+              >
+                <h3 className="text-sm font-semibold text-slate-100 truncate flex-1 min-w-0">
+                  {agent.name}
+                </h3>
+                <Pencil size={11} className="text-slate-600 opacity-0 group-hover:opacity-100 flex-shrink-0 transition-opacity" />
+              </div>
+            )}
             {agent.description && (
               <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
                 {agent.description}
@@ -57,9 +115,13 @@ export default function AgentCard({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.preventDefault()}>
             <button
-              onClick={() => onToggleActive(agent.id)}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onToggleActive(agent.id)
+              }}
               title={agent.isActive ? 'Deactivate' : 'Activate'}
               className={`
                 flex items-center justify-center w-9 h-9 rounded-lg
@@ -78,7 +140,11 @@ export default function AgentCard({
               )}
             </button>
             <button
-              onClick={() => onRemove(agent.id)}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onRemove(agent.id)
+              }}
               title="Remove"
               className="flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-all duration-150 opacity-0 group-hover:opacity-100"
             >
@@ -96,14 +162,6 @@ export default function AgentCard({
           </div>
         )}
       </div>
-
-      {onOpen && (
-        <button
-          onClick={() => onOpen(agent.id)}
-          className="absolute inset-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:ring-inset"
-          aria-label={`Open ${agent.name}`}
-        />
-      )}
-    </article>
+    </Link>
   )
 }

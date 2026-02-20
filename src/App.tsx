@@ -15,12 +15,15 @@ import {
   type NodeTypes,
 } from '@xyflow/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import Sidebar from './components/sidebar/Sidebar'
 import Topbar from './components/ui/Topbar'
 import ContextMenu from './components/ui/ContextMenu'
 import MobileWarning from './components/ui/MobileWarning'
 import { useToast } from './components/ui/Toast'
 import { useUndoRedo } from './hooks/useUndoRedo'
+import { useWalletAddress } from './hooks/useWalletAddress'
+import { useAgents } from './hooks/useAgents'
 import { getBlock, minimapColor } from './lib/blockRegistry'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
@@ -30,30 +33,8 @@ const nodeTypes: NodeTypes = {
   generic: GenericNode,
 }
 
-const initialNodes: Node[] = [
-  {
-    id: 'demo-1',
-    type: 'generic',
-    position: { x: 120, y: 180 },
-    data: { blockType: 'watchWallet', walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' },
-  },
-  {
-    id: 'demo-2',
-    type: 'generic',
-    position: { x: 500, y: 180 },
-    data: { blockType: 'executeSwap', fromToken: 'ETH', toToken: 'USDC', slippage: '0.5' },
-  },
-]
-
-const initialEdges: Edge[] = [
-  {
-    id: 'demo-e1',
-    source: 'demo-1',
-    target: 'demo-2',
-    animated: true,
-    style: { stroke: '#6366f1', strokeWidth: 2 },
-  },
-]
+const emptyNodes: Node[] = []
+const emptyEdges: Edge[] = []
 
 let idCounter = 10
 
@@ -72,9 +53,51 @@ interface ContextMenuState {
   nodeId: string
 }
 
+const NODE_SPACING_X = 280
+const NODE_SPACING_Y = 140
+
+/** Build flowData from model when flowData is missing (legacy agents). Uses spacing consistent with editor. */
+function modelToFlowData(model: { nodes: { id: string; type: string; data: Record<string, unknown> }[]; edges: { id: string; source: string; target: string }[] }): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = model.nodes.map((n, i) => ({
+    id: n.id,
+    type: (n.type || 'generic') as 'generic',
+    position: { x: 120 + (i % 3) * NODE_SPACING_X, y: 120 + Math.floor(i / 3) * NODE_SPACING_Y },
+    data: n.data,
+  }))
+  const edges: Edge[] = model.edges.map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    animated: true,
+    style: { stroke: '#6366f1', strokeWidth: 2 },
+  }))
+  return { nodes, edges }
+}
+
+/** Ensure node positions are valid { x, y } objects (handles stored/legacy data) */
+function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes: Node[]; edges: Edge[] } {
+  return {
+    nodes: flowData.nodes.map((n) => ({
+      ...n,
+      position: {
+        x: typeof n.position?.x === 'number' ? n.position.x : 0,
+        y: typeof n.position?.y === 'number' ? n.position.y : 0,
+      },
+    })),
+    edges: flowData.edges.map((e) => ({
+      ...e,
+      animated: e.animated ?? true,
+      style: e.style ?? { stroke: '#6366f1', strokeWidth: 2 },
+    })),
+  }
+}
+
 export default function App() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const { id: agentId } = useParams<{ id: string }>()
+  const walletAddress = useWalletAddress()
+  const { getAgentById } = useAgents(walletAddress)
+  const [nodes, setNodes, onNodesChange] = useNodesState(emptyNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(emptyEdges)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const reactFlowInstance = useRef<Parameters<typeof ReactFlow>[0] & { screenToFlowPosition?: (pos: { x: number; y: number }) => { x: number; y: number } }>(null)
 
@@ -86,6 +109,24 @@ export default function App() {
   nodesRef.current = nodes
   const edgesRef = useRef(edges)
   edgesRef.current = edges
+
+  // Load agent when editing, clear when creating new
+  useEffect(() => {
+    if (!agentId) {
+      setNodes(emptyNodes)
+      setEdges(emptyEdges)
+      return
+    }
+    if (!walletAddress) return
+    const agent = getAgentById(agentId)
+    if (!agent) return
+    const raw = agent.flowData
+      ? agent.flowData
+      : modelToFlowData(agent.model)
+    const { nodes: n, edges: e } = normalizeFlowData(raw)
+    setNodes(n)
+    setEdges(e)
+  }, [agentId, walletAddress, getAgentById, setNodes, setEdges])
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -358,6 +399,7 @@ export default function App() {
 
       <div className="flex flex-col flex-1 min-w-0">
         <Topbar
+          agentId={agentId}
           nodes={nodes}
           edges={edges}
           onClear={handleClear}
@@ -369,6 +411,7 @@ export default function App() {
 
         <div ref={reactFlowWrapper} className="flex-1 relative">
           <ReactFlow
+            key={agentId ?? 'new'}
             ref={reactFlowInstance as any}
             nodes={nodes}
             edges={edges}
