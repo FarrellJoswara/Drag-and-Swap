@@ -1,0 +1,204 @@
+import {
+  Eye,
+  Bell,
+  Zap,
+  Wallet,
+  Shield,
+  Filter,
+  ArrowLeftRight,
+  Activity,
+  BarChart3,
+  Braces,
+  Clock,
+  Globe,
+  Send,
+  Database,
+  type LucideIcon,
+} from 'lucide-react'
+
+// ── Input field types ─────────────────────────────────────
+//
+// When defining a block, pick the input type that fits:
+//   text         → single-line string
+//   number       → numeric value
+//   select       → dropdown with fixed options
+//   toggle       → on / off switch
+//   textarea     → multi-line text
+//   address      → wallet address (mono font, icon)
+//   slider       → range with min / max / step
+//   tokenSelect  → rich token picker for DeFi tokens
+//   variable     → dropdown referencing outputs from other blocks
+//   keyValue     → dynamic list of key/value pairs
+
+export type InputFieldType =
+  | 'text'
+  | 'number'
+  | 'select'
+  | 'toggle'
+  | 'textarea'
+  | 'address'
+  | 'slider'
+  | 'tokenSelect'
+  | 'variable'
+  | 'keyValue'
+
+export interface InputField {
+  name: string
+  label: string
+  type: InputFieldType
+  placeholder?: string
+  options?: string[]
+  defaultValue?: string
+  allowVariable?: boolean
+  min?: number
+  max?: number
+  step?: number
+  rows?: number
+  tokens?: string[]
+}
+
+export interface OutputField {
+  name: string
+  label: string
+}
+
+export type BlockCategory = 'trigger' | 'action' | 'filter'
+export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose'
+
+export interface BlockDefinition {
+  type: string
+  label: string
+  description: string
+  category: BlockCategory
+  color: BlockColor
+  icon: string
+  inputs: InputField[]
+  outputs: OutputField[]
+  run: (inputs: Record<string, string>) => Promise<Record<string, string>>
+}
+
+// ── Registry ──────────────────────────────────────────────
+
+const registry = new Map<string, BlockDefinition>()
+
+export function registerBlock(def: BlockDefinition) {
+  registry.set(def.type, def)
+}
+
+export function getBlock(type: string) {
+  return registry.get(type)
+}
+
+export function getAllBlocks() {
+  return Array.from(registry.values())
+}
+
+export function getBlocksByCategory(category: BlockCategory) {
+  return getAllBlocks().filter((b) => b.category === category)
+}
+
+/** Returns a flat list of every output across all registered blocks. */
+export function getAllOutputOptions() {
+  const options: { blockType: string; blockLabel: string; output: OutputField }[] = []
+  for (const block of registry.values()) {
+    for (const out of block.outputs) {
+      options.push({ blockType: block.type, blockLabel: block.label, output: out })
+    }
+  }
+  return options
+}
+
+// ── Icon map ──────────────────────────────────────────────
+
+const iconMap: Record<string, LucideIcon> = {
+  eye: Eye,
+  bell: Bell,
+  zap: Zap,
+  wallet: Wallet,
+  shield: Shield,
+  filter: Filter,
+  arrowLeftRight: ArrowLeftRight,
+  activity: Activity,
+  barChart: BarChart3,
+  braces: Braces,
+  clock: Clock,
+  globe: Globe,
+  send: Send,
+  database: Database,
+}
+
+export function getBlockIcon(name: string): LucideIcon {
+  return iconMap[name] ?? Activity
+}
+
+// ── Color maps ────────────────────────────────────────────
+
+export const iconColorClass: Record<BlockColor, string> = {
+  violet: 'text-violet-400',
+  amber: 'text-amber-400',
+  emerald: 'text-emerald-400',
+  blue: 'text-blue-400',
+  rose: 'text-rose-400',
+}
+
+export const focusColorClass: Record<BlockColor, string> = {
+  violet: 'focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30',
+  amber: 'focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30',
+  emerald: 'focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30',
+  blue: 'focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30',
+  rose: 'focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30',
+}
+
+export const accentBgClass: Record<BlockColor, string> = {
+  violet: 'bg-violet-500',
+  amber: 'bg-amber-500',
+  emerald: 'bg-emerald-500',
+  blue: 'bg-blue-500',
+  rose: 'bg-rose-500',
+}
+
+export const sidebarColorClasses: Record<
+  BlockColor,
+  { bg: string; text: string; border: string }
+> = {
+  violet: {
+    bg: 'bg-violet-500/10',
+    text: 'text-violet-400',
+    border: 'border-violet-500/20 hover:border-violet-500/50',
+  },
+  amber: {
+    bg: 'bg-amber-500/10',
+    text: 'text-amber-400',
+    border: 'border-amber-500/20 hover:border-amber-500/50',
+  },
+  emerald: {
+    bg: 'bg-emerald-500/10',
+    text: 'text-emerald-400',
+    border: 'border-emerald-500/20 hover:border-emerald-500/50',
+  },
+  blue: {
+    bg: 'bg-blue-500/10',
+    text: 'text-blue-400',
+    border: 'border-blue-500/20 hover:border-blue-500/50',
+  },
+  rose: {
+    bg: 'bg-rose-500/10',
+    text: 'text-rose-400',
+    border: 'border-rose-500/20 hover:border-rose-500/50',
+  },
+}
+
+export const minimapColor: Record<BlockColor, string> = {
+  violet: '#7c3aed',
+  amber: '#d97706',
+  emerald: '#059669',
+  blue: '#3b82f6',
+  rose: '#f43f5e',
+}
+
+// ── Common token list ─────────────────────────────────────
+
+export const DEFAULT_TOKENS = [
+  'ETH', 'USDC', 'USDT', 'WBTC', 'DAI', 'ARB', 'OP', 'LINK', 'UNI', 'AAVE',
+  'MATIC', 'CRV', 'MKR', 'COMP', 'SNX', 'SUSHI', 'YFI', 'BAL', 'LDO', 'RPL',
+]
