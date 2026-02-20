@@ -30,6 +30,16 @@ const WS_URL =
 
 let wsId = 0
 
+/** Track active subscriptions by ID for unsubscribe functionality */
+interface Subscription {
+  ws: WebSocket
+  streamType: HyperliquidStreamType
+  id: number
+  unsubscribe: () => void
+}
+
+const activeSubscriptions = new Map<number, Subscription>()
+
 /**
  * Subscribe to a Hyperliquid stream (trades, orders, etc.). Server pushes messages;
  * onMessage is called for each data block. Returns an unsubscribe function — call it
@@ -47,6 +57,22 @@ export function subscribe(
 
   const ws = new WebSocket(WS_URL)
   const id = ++wsId
+
+  const unsubscribeFn = () => {
+    try {
+      ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'hl_unsubscribe', params: { streamType }, id: id + 1000 }))
+    } catch {}
+    ws.close()
+    activeSubscriptions.delete(id)
+  }
+
+  // Store subscription for later unsubscribe by ID
+  activeSubscriptions.set(id, {
+    ws,
+    streamType,
+    id,
+    unsubscribe: unsubscribeFn,
+  })
 
   ws.onopen = () => {
     const payload: Record<string, unknown> = {
@@ -76,14 +102,60 @@ export function subscribe(
   }
 
   ws.onerror = (e) => console.error('[Hyperliquid WS] error', e)
-  ws.onclose = () => {}
-
-  return () => {
-    try {
-      ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'hl_unsubscribe', params: { streamType }, id: id + 1000 }))
-    } catch {}
-    ws.close()
+  ws.onclose = () => {
+    // Clean up subscription when socket closes
+    activeSubscriptions.delete(id)
   }
+
+  return unsubscribeFn
+}
+
+/**
+ * Unsubscribe from a Hyperliquid stream by subscription ID.
+ * Returns true if unsubscribed successfully, false if subscription not found.
+ */
+export function unsubscribe(subscriptionId: number): boolean {
+  const subscription = activeSubscriptions.get(subscriptionId)
+  if (!subscription) {
+    console.warn(`[Hyperliquid WS] Subscription ${subscriptionId} not found`)
+    return false
+  }
+  subscription.unsubscribe()
+  return true
+}
+
+/**
+ * Unsubscribe from all active subscriptions matching a stream type.
+ * Returns the number of subscriptions unsubscribed.
+ */
+export function unsubscribeByStreamType(streamType: HyperliquidStreamType): number {
+  let count = 0
+  for (const sub of activeSubscriptions.values()) {
+    if (sub.streamType === streamType) {
+      sub.unsubscribe()
+      count++
+    }
+  }
+  return count
+}
+
+/**
+ * Unsubscribe from all active subscriptions.
+ * Returns the number of subscriptions unsubscribed.
+ */
+export function unsubscribeAll(): number {
+  const count = activeSubscriptions.size
+  for (const sub of activeSubscriptions.values()) {
+    sub.unsubscribe()
+  }
+  return count
+}
+
+/**
+ * Get all active subscription IDs.
+ */
+export function getActiveSubscriptionIds(): number[] {
+  return Array.from(activeSubscriptions.keys())
 }
 
 /** Flatten a trade event into string key-value pairs for block outputs (coin, price, size, side, user, hash, etc.). */
