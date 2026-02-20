@@ -4,6 +4,7 @@ import type { Edge, Node } from '@xyflow/react'
 export interface InputConnection {
   sourceNodeId: string
   sourceHandle?: string
+  targetHandle?: string
   edgeId: string
 }
 
@@ -73,6 +74,7 @@ export function buildConnectedModel(nodes: Node[], edges: Edge[]): ConnectedMode
       targetNode.inputs.push({
         sourceNodeId: edge.source,
         sourceHandle: edge.sourceHandle ?? undefined,
+        targetHandle: edge.targetHandle ?? undefined,
         edgeId: edge.id,
       })
     }

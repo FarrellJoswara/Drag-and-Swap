@@ -65,6 +65,12 @@ export interface OutputField {
 export type BlockCategory = 'trigger' | 'action' | 'filter'
 export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose'
 
+/** Called when an interrupt-based trigger fires. */
+export type TriggerCallback = (outputs: Record<string, string>) => void
+
+/** Cleanup function returned by subscribe. */
+export type Unsubscribe = () => void
+
 export interface BlockDefinition {
   type: string
   label: string
@@ -75,6 +81,8 @@ export interface BlockDefinition {
   inputs: InputField[]
   outputs: OutputField[]
   run: (inputs: Record<string, string>) => Promise<Record<string, string>>
+  /** Interrupt-based: subscribe to events, call onTrigger when they occur. Returns cleanup. */
+  subscribe?: (inputs: Record<string, string>, onTrigger: TriggerCallback) => Unsubscribe
 }
 
 // ── Registry ──────────────────────────────────────────────

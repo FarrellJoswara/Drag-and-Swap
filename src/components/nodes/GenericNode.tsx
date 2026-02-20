@@ -82,9 +82,27 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       </div>
 
       {definition.category !== 'trigger' && (
-        <Handle type="target" position={Position.Left} />
+        <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-center gap-1 -ml-[5px]">
+          {definition.inputs.map((field) => (
+            <Handle
+              key={field.name}
+              type="target"
+              position={Position.Left}
+              id={field.name}
+            />
+          ))}
+        </div>
       )}
-      <Handle type="source" position={Position.Right} />
+      <div className="absolute right-0 top-0 bottom-0 flex flex-col justify-center gap-1 -mr-[5px]">
+        {definition.outputs.map((out) => (
+          <Handle
+            key={out.name}
+            type="source"
+            position={Position.Right}
+            id={out.name}
+          />
+        ))}
+      </div>
     </NodeShell>
   )
 }

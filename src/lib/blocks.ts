@@ -27,6 +27,7 @@ import { getEthBalance, getGasPrice, getTransactionCount } from '../services/qui
 import { getSwapQuote, executeSwap, getTokenPrice } from '../services/uniswap'
 import { saveKeyValue } from '../services/supabase'
 import { fetchRecentTrades, fetchRecentEvents, hlGetLatestBlocks } from '../services/hyperliquid'
+import { sendWebhook, timeLoopRun } from '../services/general'
 
 /** Placeholder run for streaming triggers — use useHyperstreamSockets when running the flow. */
 const STREAMING_TRIGGER_MSG = 'Streaming trigger — start flow with useHyperstreamSockets to receive events.'
@@ -717,6 +718,7 @@ registerBlock({
   inputs: [
     { name: 'url', label: 'Webhook URL', type: 'text', placeholder: 'https://...', allowVariable: true },
     { name: 'method', label: 'Method', type: 'select', options: ['POST', 'GET', 'PUT', 'DELETE'], defaultValue: 'POST' },
+    { name: 'useCorsProxy', label: 'Use CORS proxy (for browser)', type: 'toggle', defaultValue: 'true' },
     { name: 'headers', label: 'Headers', type: 'keyValue', defaultValue: '[]' },
     { name: 'body', label: 'Request Body', type: 'textarea', placeholder: '{"key": "value"}', rows: 3, allowVariable: true },
   ],
@@ -724,21 +726,7 @@ registerBlock({
     { name: 'status', label: 'Status Code' },
     { name: 'response', label: 'Response Body' },
   ],
-  run: async (inputs) => {
-    const headers: Record<string, string> = {}
-    try {
-      const pairs = JSON.parse(inputs.headers || '[]') as { key: string; value: string }[]
-      for (const p of pairs) headers[p.key] = p.value
-    } catch { /* ignore bad JSON */ }
-
-    const res = await fetch(inputs.url, {
-      method: inputs.method,
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: inputs.method !== 'GET' ? inputs.body : undefined,
-    })
-    const text = await res.text()
-    return { status: String(res.status), response: text }
-  },
+  run: async (inputs) => sendWebhook(inputs),
 })
 
 registerBlock({
@@ -787,7 +775,7 @@ registerBlock({
 registerBlock({
   type: 'timeLoop',
   label: 'Time Loop',
-  description: 'Trigger every x seconds',
+  description: 'Trigger every x seconds (interrupt-based)',
   category: 'trigger',
   color: 'amber',
   icon: 'clock',
@@ -797,10 +785,12 @@ registerBlock({
   outputs: [
     { name: 'elapsed', label: 'Time Elapsed' },
   ],
-  run: async (inputs) => {
-    const ms = parseFloat(inputs.seconds) * 1000
-    await new Promise((r) => setTimeout(r, ms))
-    return { elapsed: `${inputs.seconds}s` }
+  run: async (inputs) => timeLoopRun(parseFloat(inputs.seconds || '10')),
+  subscribe: (inputs, onTrigger) => {
+    const seconds = parseFloat(inputs.seconds || '10')
+    const ms = Math.max(1000, seconds * 1000)
+    const id = setInterval(() => onTrigger({ elapsed: `${seconds}s` }), ms)
+    return () => clearInterval(id)
   },
 })
 

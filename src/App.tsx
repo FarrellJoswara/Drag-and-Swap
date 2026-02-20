@@ -23,7 +23,7 @@ import MobileWarning from './components/ui/MobileWarning'
 import { useToast } from './components/ui/Toast'
 import { useUndoRedo } from './hooks/useUndoRedo'
 import { useWalletAddress } from './hooks/useWalletAddress'
-import { useAgents } from './hooks/useAgents'
+import { useAgents } from './contexts/AgentsContext'
 import { getBlock, minimapColor } from './lib/blockRegistry'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
@@ -95,7 +95,7 @@ function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes:
 export default function App() {
   const { id: agentId } = useParams<{ id: string }>()
   const walletAddress = useWalletAddress()
-  const { getAgentById } = useAgents(walletAddress)
+  const { getAgentById } = useAgents()
   const [nodes, setNodes, onNodesChange] = useNodesState(emptyNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(emptyEdges)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)

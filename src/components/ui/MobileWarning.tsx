@@ -11,7 +11,7 @@ export default function MobileWarning() {
           Desktop Required
         </h2>
         <p className="text-sm text-slate-500 leading-relaxed">
-          Drag & Swap is a visual node editor designed for desktop browsers.
+          Dragn Swap is a visual node editor designed for desktop browsers.
           Please switch to a larger screen for the best experience.
         </p>
       </div>

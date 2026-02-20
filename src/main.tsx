@@ -6,6 +6,7 @@ import Router from './Router.tsx'
 import ErrorBoundary from './components/ui/ErrorBoundary.tsx'
 import { ToastProvider } from './components/ui/Toast.tsx'
 import { VariableProvider } from './lib/VariableContext.tsx'
+import { AgentsProvider } from './contexts/AgentsContext.tsx'
 import { PRIVY_APP_ID, privyConfig } from './services/privy.ts'
 
 function AuthProvider({ children }: { children: ReactNode }) {
@@ -23,7 +24,9 @@ createRoot(document.getElementById('root')!).render(
       <AuthProvider>
         <ToastProvider>
           <VariableProvider>
-            <Router />
+            <AgentsProvider>
+              <Router />
+            </AgentsProvider>
           </VariableProvider>
         </ToastProvider>
       </AuthProvider>

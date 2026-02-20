@@ -168,10 +168,10 @@ export default function Sidebar() {
       <div className="px-4 py-4 border-b border-slate-800/60">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <Repeat2 size={14} className="text-white" />
+            <img src="/logo.png" alt="Dragn Swap Logo" className="w-full h-full object-contain" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-100 tracking-tight">Drag & Swap</p>
+            <p className="text-sm font-semibold text-slate-100 tracking-tight">Dragn Swap</p>
             <p className="text-[10px] text-slate-500">DeFi Automation</p>
           </div>
         </div>

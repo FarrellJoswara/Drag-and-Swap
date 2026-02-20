@@ -1,14 +1,14 @@
 import { usePrivy } from '@privy-io/react-auth'
 import { Link } from 'react-router-dom'
 import { Repeat2, Plus, Wallet, LayoutGrid, ArrowRight } from 'lucide-react'
-import { useAgents } from '../hooks/useAgents'
+import { useAgents } from '../contexts/AgentsContext'
 import { useWalletAddress } from '../hooks/useWalletAddress'
 import AgentCard from '../components/agents/AgentCard'
 
 export default function AgentsHome() {
   const { ready, authenticated, login, logout } = usePrivy()
   const walletAddress = useWalletAddress()
-  const { agents, toggleActive, removeAgent, updateAgent } = useAgents(walletAddress)
+  const { agents, toggleActive, removeAgent, updateAgent } = useAgents()
 
   if (!ready) {
     return (
@@ -53,9 +53,9 @@ export default function AgentsHome() {
             className="flex items-center gap-2.5 text-slate-300 hover:text-slate-100 transition-colors"
           >
             <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
-              <Repeat2 size={14} className="text-white" />
+              <img src="/logo.png" alt="Dragn Swap Logo" className="w-full h-full object-contain" />
             </div>
-            <span className="text-sm font-semibold">Drag & Swap</span>
+            <span className="text-sm font-semibold">Dragn Swap</span>
           </Link>
           <div className="h-4 w-px bg-slate-800" />
           <div className="flex items-center gap-2">

@@ -6,7 +6,7 @@ import { buildConnectedModel } from '../../utils/buildConnectedModel'
 import { useToast } from './Toast'
 import { usePrivy } from '@privy-io/react-auth'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
-import { useAgents } from '../../hooks/useAgents'
+import { useAgents } from '../../contexts/AgentsContext'
 import DeployNameModal from './DeployNameModal'
 
 interface TopbarProps {
@@ -33,7 +33,7 @@ export default function Topbar({
   const { toast } = useToast()
   const { authenticated, login } = usePrivy()
   const walletAddress = useWalletAddress()
-  const { addAgent, updateAgentModel, getAgentById } = useAgents(walletAddress)
+  const { addAgent, updateAgentModel, getAgentById } = useAgents()
   const [showDeployModal, setShowDeployModal] = useState(false)
   const navigate = useNavigate()
   const defaultDeployName = `Agent ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
