@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Braces, Filter, LayoutGrid, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
+import { Braces, ChevronDown, ChevronRight, Filter, Info, LayoutGrid, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
 import { useState, useMemo, type DragEvent } from 'react'
 import {
   getBlocksByCategory,
@@ -9,23 +9,17 @@ import {
 } from '../../lib/blockRegistry'
 import { useVariables, type Variable } from '../../lib/VariableContext'
 
-// ── Block helpers ─────────────────────────────────────────
-
-function SectionLabel({ title, icon, trailing }: { title: string; icon: React.ReactNode; trailing?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between mb-2 px-1">
-      <div className="flex items-center gap-2">
-        <span className="text-slate-500">{icon}</span>
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</span>
-      </div>
-      {trailing}
-    </div>
-  )
+/** Order blocks: general (no service) first, then the rest. */
+function orderBlocks(blocks: BlockDefinition[]) {
+  const general = blocks.filter((b) => !b.service)
+  const rest = blocks.filter((b) => b.service)
+  return [...general, ...rest]
 }
 
 function DraggableBlock({ block }: { block: BlockDefinition }) {
   const colors = sidebarColorClasses[block.color]
   const Icon = getBlockIcon(block.icon)
+  const [showTooltip, setShowTooltip] = useState(false)
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
     e.dataTransfer.setData('application/reactflow', block.type)
@@ -33,38 +27,40 @@ function DraggableBlock({ block }: { block: BlockDefinition }) {
   }
 
   return (
-    <div
-      draggable
-      onDragStart={handleDragStart}
-      className={`
-        flex items-center gap-3 px-3 py-2.5 rounded-lg
-        bg-[#0f1117] border ${colors.border}
-        cursor-grab active:cursor-grabbing
-        transition-all duration-150 group
-        hover:bg-slate-800/50 hover:shadow-lg hover:shadow-black/30
-        hover:-translate-y-0.5
-      `}
-    >
-      <div className={`w-8 h-8 rounded-lg ${colors.bg} flex items-center justify-center flex-shrink-0 ${colors.text}`}>
-        <Icon size={15} />
+    <div className="relative group/block">
+      <div
+        draggable
+        onDragStart={handleDragStart}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        className={`
+          flex items-center gap-3 px-3 py-2.5 rounded-lg
+          bg-[#0f1117] border ${colors.border}
+          cursor-grab active:cursor-grabbing
+          transition-all duration-150
+          hover:bg-slate-800/50 hover:shadow-lg hover:shadow-black/30
+          hover:-translate-y-0.5
+        `}
+      >
+        <div className={`w-8 h-8 rounded-lg ${colors.bg} flex items-center justify-center flex-shrink-0 ${colors.text}`}>
+          <Icon size={15} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-slate-300 group-hover/block:text-slate-100 transition-colors truncate">{block.label}</p>
+          <p className="text-[10px] text-slate-600 group-hover/block:text-slate-500 transition-colors line-clamp-2">{block.description}</p>
+        </div>
+        <div className="flex-shrink-0 opacity-0 group-hover/block:opacity-100 transition-opacity">
+          <Info size={10} className="text-slate-500" />
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-slate-300 group-hover:text-slate-100 transition-colors truncate">{block.label}</p>
-        <p className="text-[10px] text-slate-600 group-hover:text-slate-500 transition-colors truncate">{block.description}</p>
-      </div>
-    </div>
-  )
-}
-
-function BlockSection({ title, icon, blocks }: { title: string; icon: React.ReactNode; blocks: BlockDefinition[] }) {
-  return (
-    <div>
-      <SectionLabel title={title} icon={icon} />
-      <div className="flex flex-col gap-1.5">
-        {blocks.map((block) => (
-          <DraggableBlock key={block.type} block={block} />
-        ))}
-      </div>
+      {showTooltip && (
+        <div
+          className="absolute left-0 right-0 top-full mt-1 z-50 p-2.5 bg-slate-900 border border-slate-700 rounded-lg shadow-xl text-[10px] text-slate-300 leading-relaxed"
+        >
+          <p className="font-medium text-slate-200 mb-1">{block.label}</p>
+          <p className="whitespace-normal">{block.description}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -74,6 +70,53 @@ function filterBlocks(blocks: BlockDefinition[], q: string) {
   const lower = q.toLowerCase()
   return blocks.filter(
     (b) => b.label.toLowerCase().includes(lower) || b.description.toLowerCase().includes(lower),
+  )
+}
+
+function CollapsibleCategorySection({
+  title,
+  icon,
+  category,
+  query,
+  defaultOpen = true,
+}: {
+  title: string
+  icon: React.ReactNode
+  category: 'trigger' | 'action' | 'filter'
+  query: string
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const blocks = useMemo(() => {
+    const raw = getBlocksByCategory(category)
+    const filtered = filterBlocks(raw, query)
+    return orderBlocks(filtered)
+  }, [category, query])
+
+  if (blocks.length === 0) return null
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center justify-between w-full mb-2 px-1 py-0.5 rounded hover:bg-slate-800/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-slate-500">{open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
+          <span className="text-slate-500">{icon}</span>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</span>
+        </div>
+        <span className="text-[9px] text-slate-600">({blocks.length})</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1.5">
+          {blocks.map((block) => (
+            <DraggableBlock key={block.type} block={block} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -146,20 +189,18 @@ export default function Sidebar() {
   const [query, setQuery] = useState('')
   const { variables, addVariable, updateVariable, removeVariable } = useVariables()
 
-  const triggers = useMemo(() => getBlocksByCategory('trigger'), [])
-  const actions = useMemo(() => getBlocksByCategory('action'), [])
-  const filters = useMemo(() => getBlocksByCategory('filter'), [])
-
-  const filteredTriggers = useMemo(() => filterBlocks(triggers, query), [triggers, query])
-  const filteredActions = useMemo(() => filterBlocks(actions, query), [actions, query])
-  const filteredFilters = useMemo(() => filterBlocks(filters, query), [filters, query])
   const filteredVariables = useMemo(() => filterVariables(variables, query), [variables, query])
 
   const handleAddVariable = () => {
     addVariable(`var${variables.length + 1}`, '')
   }
 
-  const noBlocks = filteredTriggers.length === 0 && filteredActions.length === 0 && filteredFilters.length === 0
+  const noBlocks = useMemo(() => {
+    const hasTriggers = filterBlocks(getBlocksByCategory('trigger'), query).length > 0
+    const hasActions = filterBlocks(getBlocksByCategory('action'), query).length > 0
+    const hasFilters = filterBlocks(getBlocksByCategory('filter'), query).length > 0
+    return !hasTriggers && !hasActions && !hasFilters
+  }, [query])
   const noVariables = filteredVariables.length === 0 && variables.length === 0
 
   return (
@@ -201,15 +242,9 @@ export default function Sidebar() {
       {/* Scrollable content */}
       <div className="flex-1 px-3 pb-4 flex flex-col gap-5 overflow-y-auto">
         {/* Block sections */}
-        {filteredTriggers.length > 0 && (
-          <BlockSection title="Triggers" icon={<Zap size={11} />} blocks={filteredTriggers} />
-        )}
-        {filteredActions.length > 0 && (
-          <BlockSection title="Actions" icon={<Repeat2 size={11} />} blocks={filteredActions} />
-        )}
-        {filteredFilters.length > 0 && (
-          <BlockSection title="Filters" icon={<Filter size={11} />} blocks={filteredFilters} />
-        )}
+        <CollapsibleCategorySection title="Triggers" icon={<Zap size={11} />} category="trigger" query={query} />
+        <CollapsibleCategorySection title="Actions" icon={<Repeat2 size={11} />} category="action" query={query} />
+        <CollapsibleCategorySection title="Filters" icon={<Filter size={11} />} category="filter" query={query} />
 
         {noBlocks && noVariables && query && (
           <div className="text-center py-8">
@@ -219,19 +254,19 @@ export default function Sidebar() {
 
         {/* Variables section */}
         <div>
-          <SectionLabel
-            title="Variables"
-            icon={<Braces size={11} />}
-            trailing={
-              <button
-                onClick={handleAddVariable}
-                className="p-1 text-slate-600 hover:text-blue-400 transition-colors rounded hover:bg-blue-500/10"
-                title="Add variable"
-              >
-                <Plus size={11} />
-              </button>
-            }
-          />
+          <div className="flex items-center justify-between mb-2 px-1">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500"><Braces size={11} /></span>
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Variables</span>
+            </div>
+            <button
+              onClick={handleAddVariable}
+              className="p-1 text-slate-600 hover:text-blue-400 transition-colors rounded hover:bg-blue-500/10"
+              title="Add variable"
+            >
+              <Plus size={11} />
+            </button>
+          </div>
           <div className="flex flex-col gap-1.5">
             {filteredVariables.map((v) => (
               <DraggableVariable

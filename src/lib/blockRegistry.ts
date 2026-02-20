@@ -63,7 +63,8 @@ export interface OutputField {
 }
 
 export type BlockCategory = 'trigger' | 'action' | 'filter'
-export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose'
+export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose' | 'yellow'
+export type BlockService = 'quicknode' | 'hyperliquid' | 'uniswap' | 'supabase'
 
 /** Called when an interrupt-based trigger fires. */
 export type TriggerCallback = (outputs: Record<string, string>) => void
@@ -75,9 +76,14 @@ export interface BlockDefinition {
   type: string
   label: string
   description: string
+  /** Primary category. Use categories for blocks that appear in multiple sections. */
   category: BlockCategory
+  /** If set, block appears in each listed category (e.g. ethBalance in trigger + action). */
+  categories?: BlockCategory[]
   color: BlockColor
   icon: string
+  /** Service folder (quicknode, hyperliquid, uniswap, supabase). Omit for general blocks. */
+  service?: BlockService
   inputs: InputField[]
   outputs: OutputField[]
   run: (inputs: Record<string, string>) => Promise<Record<string, string>>
@@ -102,7 +108,29 @@ export function getAllBlocks() {
 }
 
 export function getBlocksByCategory(category: BlockCategory) {
-  return getAllBlocks().filter((b) => b.category === category)
+  return getAllBlocks().filter((b) => {
+    if (b.categories) return b.categories.includes(category)
+    return b.category === category
+  })
+}
+
+/** Group blocks by service within a category. Returns { serviceName: blocks[] } and general blocks. */
+export function getBlocksByCategoryGroupedByService(category: BlockCategory) {
+  const blocks = getBlocksByCategory(category)
+  const byService: Record<string, BlockDefinition[]> = {}
+  const general: BlockDefinition[] = []
+
+  for (const block of blocks) {
+    if (block.service) {
+      const key = block.service
+      if (!byService[key]) byService[key] = []
+      byService[key].push(block)
+    } else {
+      general.push(block)
+    }
+  }
+
+  return { byService, general }
 }
 
 /** Returns a flat list of every output across all registered blocks. */
@@ -147,6 +175,7 @@ export const iconColorClass: Record<BlockColor, string> = {
   emerald: 'text-emerald-400',
   blue: 'text-blue-400',
   rose: 'text-rose-400',
+  yellow: 'text-yellow-400',
 }
 
 export const focusColorClass: Record<BlockColor, string> = {
@@ -155,6 +184,7 @@ export const focusColorClass: Record<BlockColor, string> = {
   emerald: 'focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30',
   blue: 'focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30',
   rose: 'focus:border-rose-500 focus:ring-1 focus:ring-rose-500/30',
+  yellow: 'focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500/30',
 }
 
 export const accentBgClass: Record<BlockColor, string> = {
@@ -163,6 +193,7 @@ export const accentBgClass: Record<BlockColor, string> = {
   emerald: 'bg-emerald-500',
   blue: 'bg-blue-500',
   rose: 'bg-rose-500',
+  yellow: 'bg-yellow-500',
 }
 
 export const sidebarColorClasses: Record<
@@ -194,6 +225,11 @@ export const sidebarColorClasses: Record<
     text: 'text-rose-400',
     border: 'border-rose-500/20 hover:border-rose-500/50',
   },
+  yellow: {
+    bg: 'bg-yellow-500/10',
+    text: 'text-yellow-400',
+    border: 'border-yellow-500/20 hover:border-yellow-500/50',
+  },
 }
 
 export const minimapColor: Record<BlockColor, string> = {
@@ -202,6 +238,7 @@ export const minimapColor: Record<BlockColor, string> = {
   emerald: '#059669',
   blue: '#3b82f6',
   rose: '#f43f5e',
+  yellow: '#eab308',
 }
 
 // ── Common token list ─────────────────────────────────────

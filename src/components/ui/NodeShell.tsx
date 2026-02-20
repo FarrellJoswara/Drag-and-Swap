@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type BadgeColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose'
+type BadgeColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose' | 'yellow'
 
 interface NodeShellProps {
   children: ReactNode
@@ -18,6 +18,7 @@ const badgeStyles: Record<BadgeColor, string> = {
   emerald:'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
   blue:   'bg-blue-500/10 text-blue-400 border-blue-500/20',
   rose:   'bg-rose-500/10 text-rose-400 border-rose-500/20',
+  yellow: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
 }
 
 const ringStyles: Record<BadgeColor, string> = {
@@ -26,6 +27,7 @@ const ringStyles: Record<BadgeColor, string> = {
   emerald:'ring-emerald-500/40',
   blue:   'ring-blue-500/40',
   rose:   'ring-rose-500/40',
+  yellow: 'ring-yellow-500/40',
 }
 
 const topBorderStyles: Record<BadgeColor, string> = {
@@ -34,6 +36,7 @@ const topBorderStyles: Record<BadgeColor, string> = {
   emerald:'from-emerald-500/60 to-emerald-500/0',
   blue:   'from-blue-500/60 to-blue-500/0',
   rose:   'from-rose-500/60 to-rose-500/0',
+  yellow: 'from-yellow-500/60 to-yellow-500/0',
 }
 
 export default function NodeShell({ children, label, icon, badge, badgeColor, selected }: NodeShellProps) {
