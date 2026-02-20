@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Skills
+.agents
+.cursor
