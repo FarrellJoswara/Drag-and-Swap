@@ -42,72 +42,13 @@ import {
   delegationMonitor,
   recentEvents,
   systemTransferMonitor,
-} from '../services/hyperliquid'
+} from '../services/hyperliquid/index'
 import { swapQuote, executeSwap, tokenPrice, priceAlert } from '../services/uniswap'
 import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
 /** Placeholder run for streaming triggers — use useHyperstreamSockets when running the flow. */
 const STREAMING_TRIGGER_MSG = 'Streaming trigger — start flow with useHyperstreamSockets to receive events.'
 
-// ─── QuickNode Blocks ────────────────────────────────────
-
-registerBlock({
-  type: 'watchWallet',
-  label: 'Whale Watcher',
-  description: 'Monitor large wallet activity on EVM chains',
-  category: 'trigger',
-  service: 'quicknode',
-  color: 'emerald',
-  icon: 'eye',
-  inputs: [
-    { name: 'walletAddress', label: 'Wallet Address', type: 'address', allowVariable: true },
-    { name: 'threshold', label: 'Min Value (USD)', type: 'slider', min: 1000, max: 500000, step: 1000, defaultValue: '50000' },
-  ],
-  outputs: [
-    { name: 'txHash', label: 'Transaction Hash' },
-    { name: 'value', label: 'Value (USD)' },
-    { name: 'from', label: 'Sender Address' },
-    { name: 'to', label: 'Receiver Address' },
-  ],
-  run: async (inputs) => watchWallet(inputs),
-})
-
-registerBlock({
-  type: 'ethBalance',
-  label: 'ETH Balance',
-  description: 'Check ETH balance of a wallet. Use as trigger or mid-flow action.',
-  category: 'action',
-  service: 'quicknode',
-  color: 'emerald',
-  icon: 'wallet',
-  inputs: [
-    { name: 'walletAddress', label: 'Wallet Address', type: 'address', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'balance', label: 'Balance (ETH)' },
-    { name: 'balanceUsd', label: 'Balance (USD)' },
-  ],
-  run: async (inputs) => ethBalance(inputs),
-})
-
-registerBlock({
-  type: 'txHistory',
-  label: 'TX History',
-  description: 'Get recent transactions for a wallet. Use as trigger or mid-flow action.',
-  category: 'action',
-  service: 'quicknode',
-  color: 'emerald',
-  icon: 'clock',
-  inputs: [
-    { name: 'walletAddress', label: 'Wallet Address', type: 'address', allowVariable: true },
-    { name: 'limit', label: 'Max Results', type: 'number', placeholder: '10', defaultValue: '10', min: 1, max: 100 },
-  ],
-  outputs: [
-    { name: 'transactions', label: 'Transaction List' },
-    { name: 'count', label: 'Transaction Count' },
-  ],
-  run: async (inputs) => txHistory(inputs),
-})
 
 // ─── Hyperliquid Blocks (QuickNode Data Streams) ───────────
 // Streaming triggers: run() returns placeholder; use useHyperstreamSockets to drive flows.
@@ -680,24 +621,6 @@ registerBlock({
   run: async (inputs) => valueFilter(inputs),
 })
 
-registerBlock({
-  type: 'gasGuard',
-  label: 'Gas Guard',
-  description: 'Skip when gas is too high',
-  category: 'filter',
-  service: 'quicknode',
-  color: 'emerald',
-  icon: 'shield',
-  inputs: [
-    { name: 'maxGwei', label: 'Max Gas (Gwei)', type: 'slider', min: 5, max: 200, step: 5, defaultValue: '50' },
-    { name: 'retryOnFail', label: 'Retry If Too High', type: 'toggle', defaultValue: 'false' },
-  ],
-  outputs: [
-    { name: 'currentGas', label: 'Current Gas (Gwei)' },
-    { name: 'passed', label: 'Below Threshold' },
-  ],
-  run: async (inputs) => gasGuard(inputs),
-})
 
 registerBlock({
   type: 'delayTimer',

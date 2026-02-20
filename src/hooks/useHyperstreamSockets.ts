@@ -19,7 +19,7 @@ import {
   type BookUpdateEvent,
   type TwapEvent,
   type WriterActionEvent,
-} from '../services/hyperliquid'
+} from '../services/hyperliquid/index'
 
 export interface UseHyperstreamSocketsOptions {
   /** Stream to subscribe to */
