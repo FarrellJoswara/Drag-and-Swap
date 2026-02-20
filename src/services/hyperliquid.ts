@@ -346,3 +346,125 @@ export async function fetchRecentEvents(
     passed: out.length > 0 ? 'true' : 'false',
   }
 }
+
+// ─── Block-specific functions (stub: console.log + return outputs) ───
+
+export async function tradeAlert(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('tradeAlert')
+  return { coin: '', price: '', size: '', side: '', direction: '', user: '', hash: '', fee: '', tradeId: '' }
+}
+
+export async function liquidationWatcher(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('liquidationWatcher')
+  return { coin: '', price: '', size: '', side: '', liquidatedUser: '', markPrice: '', method: '', closedPnl: '' }
+}
+
+export async function whaleTrade(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('whaleTrade')
+  return { coin: '', price: '', size: '', side: '', user: '', direction: '', hash: '' }
+}
+
+export async function recentTrades(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('recentTrades')
+  return { trades: '', tradeCount: '', lastPrice: '' }
+}
+
+export async function orderFillAlert(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('orderFillAlert')
+  return {
+    user: '',
+    coin: '',
+    side: '',
+    status: '',
+    limitPrice: '',
+    size: '',
+    origSize: '',
+    orderType: '',
+    orderId: '',
+    hash: '',
+  }
+}
+
+export async function orderRejectionMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('orderRejectionMonitor')
+  return { user: '', coin: '', status: '', side: '', size: '', limitPrice: '' }
+}
+
+export async function bookUpdateMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('bookUpdateMonitor')
+  return { coin: '', side: '', price: '', size: '', action: '', user: '', orderId: '' }
+}
+
+export async function bookSnapshot(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('bookSnapshot')
+  return { updates: '', updateCount: '', bestBid: '', bestAsk: '', spread: '' }
+}
+
+export async function twapStatusAlert(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('twapStatusAlert')
+  return {
+    twapId: '',
+    coin: '',
+    user: '',
+    side: '',
+    totalSize: '',
+    executedSize: '',
+    executedNotional: '',
+    minutes: '',
+    status: '',
+    progress: '',
+  }
+}
+
+export async function depositMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('depositMonitor')
+  return { user: '', amount: '', hash: '', timestamp: '' }
+}
+
+export async function withdrawalMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('withdrawalMonitor')
+  return { user: '', amount: '', fee: '', hash: '' }
+}
+
+export async function transferMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('transferMonitor')
+  return { type: '', user: '', destination: '', token: '', amount: '', usdcValue: '', hash: '' }
+}
+
+export async function vaultActivityMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('vaultActivityMonitor')
+  return { type: '', vault: '', user: '', amount: '', commission: '', hash: '' }
+}
+
+export async function fundingPayment(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('fundingPayment')
+  return { user: '', data: '', hash: '' }
+}
+
+export async function crossChainMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('crossChainMonitor')
+  return { user: '', amount: '', direction: '', isFinalized: '', hash: '' }
+}
+
+export async function delegationMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('delegationMonitor')
+  return { user: '', validator: '', amount: '', isUndelegate: '', hash: '' }
+}
+
+export async function recentEvents(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('recentEvents')
+  return { events: '', eventCount: '', passed: '' }
+}
+
+export async function systemTransferMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
+  console.log('systemTransferMonitor')
+  return {
+    user: '',
+    destination: '',
+    tokenId: '',
+    amount: '',
+    actionType: '',
+    evmTxHash: '',
+    nonce: '',
+  }
+}

@@ -23,11 +23,30 @@
  */
 
 import { registerBlock } from './blockRegistry'
-import { getEthBalance, getGasPrice, getTransactionCount } from '../services/quicknode'
-import { getSwapQuote, executeSwap, getTokenPrice } from '../services/uniswap'
-import { saveKeyValue } from '../services/supabase'
-import { fetchRecentTrades, fetchRecentEvents, hlGetLatestBlocks } from '../services/hyperliquid'
-import { sendWebhook, timeLoopRun } from '../services/general'
+import { watchWallet, ethBalance, txHistory, gasGuard } from '../services/quicknode'
+import {
+  tradeAlert,
+  liquidationWatcher,
+  whaleTrade,
+  recentTrades,
+  orderFillAlert,
+  orderRejectionMonitor,
+  bookUpdateMonitor,
+  bookSnapshot,
+  twapStatusAlert,
+  depositMonitor,
+  withdrawalMonitor,
+  transferMonitor,
+  vaultActivityMonitor,
+  fundingPayment,
+  crossChainMonitor,
+  delegationMonitor,
+  recentEvents,
+  systemTransferMonitor,
+} from '../services/hyperliquid'
+import { swapQuote, executeSwap, tokenPrice, priceAlert } from '../services/uniswap'
+import { dataStore } from '../services/supabase'
+import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
 /** Placeholder run for streaming triggers — use useHyperstreamSockets when running the flow. */
 const STREAMING_TRIGGER_MSG = 'Streaming trigger — start flow with useHyperstreamSockets to receive events.'
@@ -51,10 +70,7 @@ registerBlock({
     { name: 'from', label: 'Sender Address' },
     { name: 'to', label: 'Receiver Address' },
   ],
-  run: async (inputs) => {
-    const balance = await getEthBalance(inputs.walletAddress)
-    return { txHash: '', value: balance, from: inputs.walletAddress, to: '' }
-  },
+  run: async (inputs) => watchWallet(inputs),
 })
 
 registerBlock({
@@ -71,10 +87,7 @@ registerBlock({
     { name: 'balance', label: 'Balance (ETH)' },
     { name: 'balanceUsd', label: 'Balance (USD)' },
   ],
-  run: async (inputs) => {
-    const balance = await getEthBalance(inputs.walletAddress)
-    return { balance, balanceUsd: '' }
-  },
+  run: async (inputs) => ethBalance(inputs),
 })
 
 registerBlock({
@@ -92,10 +105,7 @@ registerBlock({
     { name: 'transactions', label: 'Transaction List' },
     { name: 'count', label: 'Transaction Count' },
   ],
-  run: async (inputs) => {
-    const count = await getTransactionCount(inputs.walletAddress)
-    return { transactions: '[]', count }
-  },
+  run: async (inputs) => txHistory(inputs),
 })
 
 // ─── Hyperliquid Blocks (QuickNode Data Streams) ───────────
@@ -124,9 +134,10 @@ registerBlock({
     { name: 'fee', label: 'Fee' },
     { name: 'tradeId', label: 'Trade ID' },
   ],
-  run: async () => ({
-    coin: '', price: '', size: '', side: '', direction: '', user: '', hash: '', fee: '', tradeId: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await tradeAlert(inputs)
+    return { ...out, tradeId: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -149,9 +160,10 @@ registerBlock({
     { name: 'method', label: 'Method' },
     { name: 'closedPnl', label: 'Closed PnL' },
   ],
-  run: async () => ({
-    coin: '', price: '', size: '', side: '', liquidatedUser: '', markPrice: '', method: '', closedPnl: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await liquidationWatcher(inputs)
+    return { ...out, closedPnl: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -175,9 +187,10 @@ registerBlock({
     { name: 'direction', label: 'Direction' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({
-    coin: '', price: '', size: '', side: '', user: '', direction: '', hash: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await whaleTrade(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -196,7 +209,7 @@ registerBlock({
     { name: 'tradeCount', label: 'Trade Count' },
     { name: 'lastPrice', label: 'Last Price' },
   ],
-  run: async (inputs) => fetchRecentTrades(inputs.coin || 'BTC', Math.min(200, Math.max(1, parseInt(inputs.count || '10', 10)))),
+  run: async (inputs) => recentTrades(inputs),
 })
 
 registerBlock({
@@ -223,9 +236,10 @@ registerBlock({
     { name: 'orderId', label: 'Order ID' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({
-    user: '', coin: '', side: '', status: '', limitPrice: '', size: '', origSize: '', orderType: '', orderId: '', hash: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await orderFillAlert(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -247,9 +261,10 @@ registerBlock({
     { name: 'size', label: 'Size' },
     { name: 'limitPrice', label: 'Limit Price' },
   ],
-  run: async () => ({
-    user: '', coin: '', status: '', side: '', size: '', limitPrice: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await orderRejectionMonitor(inputs)
+    return { ...out, limitPrice: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -272,9 +287,10 @@ registerBlock({
     { name: 'user', label: 'User' },
     { name: 'orderId', label: 'Order ID' },
   ],
-  run: async () => ({
-    coin: '', side: '', price: '', size: '', action: '', user: '', orderId: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await bookUpdateMonitor(inputs)
+    return { ...out, orderId: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -295,32 +311,7 @@ registerBlock({
     { name: 'bestAsk', label: 'Best Ask' },
     { name: 'spread', label: 'Spread' },
   ],
-  run: async (inputs) => {
-    const count = Math.min(200, Math.max(1, parseInt(inputs.count || '5', 10)))
-    const blocks = await hlGetLatestBlocks('book', count)
-    const coin = inputs.coin || 'BTC'
-    const out: unknown[] = []
-    let bestBid = ''
-    let bestAsk = ''
-    for (const b of blocks) {
-      const events = (b.events ?? []) as { coin?: string; side?: string; px?: string; raw_book_diff?: unknown }[]
-      for (const ev of events) {
-        if (ev.coin === coin) {
-          out.push(ev)
-          if (ev.side === 'B' && ev.px) bestBid = ev.px
-          if (ev.side === 'A' && ev.px) bestAsk = bestAsk ? (parseFloat(ev.px) < parseFloat(bestAsk) ? ev.px : bestAsk) : ev.px
-        }
-      }
-    }
-    const spread = bestBid && bestAsk ? String(parseFloat(bestAsk) - parseFloat(bestBid)) : ''
-    return {
-      updates: JSON.stringify(out),
-      updateCount: String(out.length),
-      bestBid,
-      bestAsk,
-      spread,
-    }
-  },
+  run: async (inputs) => bookSnapshot(inputs),
 })
 
 registerBlock({
@@ -347,9 +338,10 @@ registerBlock({
     { name: 'status', label: 'Status' },
     { name: 'progress', label: 'Progress (%)' },
   ],
-  run: async () => ({
-    twapId: '', coin: '', user: '', side: '', totalSize: '', executedSize: '', executedNotional: '', minutes: '', status: '', progress: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await twapStatusAlert(inputs)
+    return { ...out, progress: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -369,7 +361,10 @@ registerBlock({
     { name: 'hash', label: 'Tx Hash' },
     { name: 'timestamp', label: 'Time' },
   ],
-  run: async () => ({ user: '', amount: '', hash: '', timestamp: STREAMING_TRIGGER_MSG }),
+  run: async (inputs) => {
+    const out = await depositMonitor(inputs)
+    return { ...out, timestamp: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -389,7 +384,10 @@ registerBlock({
     { name: 'fee', label: 'Fee' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({ user: '', amount: '', fee: '', hash: STREAMING_TRIGGER_MSG }),
+  run: async (inputs) => {
+    const out = await withdrawalMonitor(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -412,9 +410,10 @@ registerBlock({
     { name: 'usdcValue', label: 'USDC Value' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({
-    type: '', user: '', destination: '', token: '', amount: '', usdcValue: '', hash: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await transferMonitor(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -436,9 +435,10 @@ registerBlock({
     { name: 'commission', label: 'Commission' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({
-    type: '', vault: '', user: '', amount: '', commission: '', hash: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await vaultActivityMonitor(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -456,7 +456,10 @@ registerBlock({
     { name: 'data', label: 'Funding Data (JSON)' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({ user: '', data: '', hash: STREAMING_TRIGGER_MSG }),
+  run: async (inputs) => {
+    const out = await fundingPayment(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -477,7 +480,10 @@ registerBlock({
     { name: 'isFinalized', label: 'Finalized' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({ user: '', amount: '', direction: '', isFinalized: '', hash: STREAMING_TRIGGER_MSG }),
+  run: async (inputs) => {
+    const out = await crossChainMonitor(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -498,7 +504,10 @@ registerBlock({
     { name: 'isUndelegate', label: 'Is Undelegation' },
     { name: 'hash', label: 'Tx Hash' },
   ],
-  run: async () => ({ user: '', validator: '', amount: '', isUndelegate: '', hash: STREAMING_TRIGGER_MSG }),
+  run: async (inputs) => {
+    const out = await delegationMonitor(inputs)
+    return { ...out, hash: STREAMING_TRIGGER_MSG }
+  },
 })
 
 registerBlock({
@@ -517,7 +526,7 @@ registerBlock({
     { name: 'eventCount', label: 'Event Count' },
     { name: 'passed', label: 'Has Events' },
   ],
-  run: async (inputs) => fetchRecentEvents(inputs.eventType || 'all', Math.min(200, Math.max(1, parseInt(inputs.count || '10', 10)))),
+  run: async (inputs) => recentEvents(inputs),
 })
 
 registerBlock({
@@ -540,9 +549,10 @@ registerBlock({
     { name: 'evmTxHash', label: 'EVM Tx Hash' },
     { name: 'nonce', label: 'Nonce' },
   ],
-  run: async () => ({
-    user: '', destination: '', tokenId: '', amount: '', actionType: '', evmTxHash: '', nonce: STREAMING_TRIGGER_MSG,
-  }),
+  run: async (inputs) => {
+    const out = await systemTransferMonitor(inputs)
+    return { ...out, nonce: STREAMING_TRIGGER_MSG }
+  },
 })
 
 // ─── Uniswap Blocks ─────────────────────────────────────
@@ -564,9 +574,7 @@ registerBlock({
     { name: 'priceImpact', label: 'Price Impact' },
     { name: 'route', label: 'Route Path' },
   ],
-  run: async (inputs) => {
-    return await getSwapQuote(inputs.fromToken, inputs.toToken, inputs.amount)
-  },
+  run: async (inputs) => swapQuote(inputs),
 })
 
 registerBlock({
@@ -587,9 +595,7 @@ registerBlock({
     { name: 'amountOut', label: 'Amount Received' },
     { name: 'gasUsed', label: 'Gas Used' },
   ],
-  run: async (inputs) => {
-    return await executeSwap(inputs.fromToken, inputs.toToken, inputs.amount, inputs.slippage)
-  },
+  run: async (inputs) => executeSwap(inputs),
 })
 
 registerBlock({
@@ -606,9 +612,7 @@ registerBlock({
     { name: 'price', label: 'Price (USD)' },
     { name: 'change24h', label: '24h Change (%)' },
   ],
-  run: async (inputs) => {
-    return await getTokenPrice(inputs.token)
-  },
+  run: async (inputs) => tokenPrice(inputs),
 })
 
 // ─── Price / Alert Blocks ────────────────────────────────
@@ -629,14 +633,7 @@ registerBlock({
     { name: 'currentPrice', label: 'Current Price' },
     { name: 'triggered', label: 'Triggered' },
   ],
-  run: async (inputs) => {
-    const { price } = await getTokenPrice(inputs.token)
-    const crossed =
-      (inputs.condition === 'above' && parseFloat(price) > parseFloat(inputs.price)) ||
-      (inputs.condition === 'below' && parseFloat(price) < parseFloat(inputs.price)) ||
-      inputs.condition === 'crosses'
-    return { currentPrice: price, triggered: String(crossed) }
-  },
+  run: async (inputs) => priceAlert(inputs),
 })
 
 // ─── Filter Blocks ───────────────────────────────────────
@@ -657,12 +654,7 @@ registerBlock({
     { name: 'passed', label: 'Passed Filter' },
     { name: 'value', label: 'Matched Value' },
   ],
-  run: async (inputs) => {
-    const min = parseFloat(inputs.minValue || '0')
-    const max = parseFloat(inputs.maxValue || 'Infinity')
-    const val = 0 // TODO: receive value from upstream block
-    return { passed: String(val >= min && val <= max), value: String(val) }
-  },
+  run: async (inputs) => valueFilter(inputs),
 })
 
 registerBlock({
@@ -680,10 +672,7 @@ registerBlock({
     { name: 'currentGas', label: 'Current Gas (Gwei)' },
     { name: 'passed', label: 'Below Threshold' },
   ],
-  run: async (inputs) => {
-    const gwei = await getGasPrice()
-    return { currentGas: gwei, passed: String(parseFloat(gwei) <= parseFloat(inputs.maxGwei)) }
-  },
+  run: async (inputs) => gasGuard(inputs),
 })
 
 registerBlock({
@@ -699,11 +688,7 @@ registerBlock({
   outputs: [
     { name: 'elapsed', label: 'Time Elapsed' },
   ],
-  run: async (inputs) => {
-    const ms = parseFloat(inputs.seconds) * 1000
-    await new Promise((r) => setTimeout(r, ms))
-    return { elapsed: `${inputs.seconds}s` }
-  },
+  run: async (inputs) => delayTimer(inputs),
 })
 
 // ─── Utility Blocks ──────────────────────────────────────
@@ -726,7 +711,7 @@ registerBlock({
     { name: 'status', label: 'Status Code' },
     { name: 'response', label: 'Response Body' },
   ],
-  run: async (inputs) => sendWebhook(inputs),
+  run: async (inputs) => webhook(inputs),
 })
 
 registerBlock({
@@ -746,10 +731,7 @@ registerBlock({
     { name: 'txHash', label: 'Transaction Hash' },
     { name: 'gasUsed', label: 'Gas Used' },
   ],
-  run: async (_inputs) => {
-    // TODO: wire up real token transfer via ethers / viem
-    throw new Error('Not implemented — requires a connected wallet to send tokens')
-  },
+  run: async (inputs) => sendToken(inputs),
 })
 
 registerBlock({
@@ -765,10 +747,7 @@ registerBlock({
   outputs: [
     { name: 'saved', label: 'Save Confirmed' },
   ],
-  run: async (inputs) => {
-    const pairs = JSON.parse(inputs.data || '[]') as { key: string; value: string }[]
-    return await saveKeyValue(pairs)
-  },
+  run: async (inputs) => dataStore(inputs),
 })
 
 
@@ -785,12 +764,26 @@ registerBlock({
   outputs: [
     { name: 'elapsed', label: 'Time Elapsed' },
   ],
-  run: async (inputs) => timeLoopRun(parseFloat(inputs.seconds || '10')),
+  run: async (inputs) => timeLoop(inputs),
   subscribe: (inputs, onTrigger) => {
     const seconds = parseFloat(inputs.seconds || '10')
     const ms = Math.max(1000, seconds * 1000)
     const id = setInterval(() => onTrigger({ elapsed: `${seconds}s` }), ms)
     return () => clearInterval(id)
   },
+})
+
+registerBlock({
+  type: 'manualTrigger',
+  label: 'Trigger Manually',
+  description: 'Run the agent once with the button (no deploy needed)',
+  category: 'trigger',
+  color: 'amber',
+  icon: 'zap',
+  inputs: [],
+  outputs: [
+    { name: 'triggered', label: 'Triggered' },
+  ],
+  run: async (inputs) => manualTrigger(inputs),
 })
 

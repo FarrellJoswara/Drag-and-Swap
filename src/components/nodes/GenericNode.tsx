@@ -1,5 +1,6 @@
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
 import { useState, useCallback } from 'react'
+import { Play } from 'lucide-react'
 import {
   getBlock,
   getBlockIcon,
@@ -7,11 +8,15 @@ import {
 } from '../../lib/blockRegistry'
 import BlockInput from './BlockInputs'
 import NodeShell from '../ui/NodeShell'
+import { buildConnectedModel } from '../../utils/buildConnectedModel'
+import { runDownstreamGraph } from '../../lib/runAgent'
+import { useToast } from '../ui/Toast'
 
 export default function GenericNode({ id, data, selected }: NodeProps) {
   const blockType = data.blockType as string
   const definition = getBlock(blockType)
-  const { setNodes } = useReactFlow()
+  const { setNodes, getNodes, getEdges } = useReactFlow()
+  const { toast } = useToast()
 
   if (!definition) {
     return (
@@ -46,6 +51,19 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
 
   const Icon = getBlockIcon(definition.icon)
 
+  const handleManualRun = useCallback(async () => {
+    const nodes = getNodes()
+    const edges = getEdges()
+    const model = buildConnectedModel(nodes, edges)
+    try {
+      await runDownstreamGraph(model, id, { triggered: 'true' })
+      toast('Agent ran successfully', 'success')
+    } catch (err) {
+      console.error('[manualTrigger] Run failed:', err)
+      toast(err instanceof Error ? err.message : 'Run failed', 'error')
+    }
+  }, [id, getNodes, getEdges, toast])
+
   return (
     <NodeShell
       selected={selected}
@@ -56,15 +74,26 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       badgeColor={definition.color}
     >
       <div className="flex flex-col gap-2">
-        {definition.inputs.map((field) => (
-          <BlockInput
-            key={field.name}
-            field={field}
-            value={inputs[field.name]}
-            onChange={(val) => updateInput(field.name, val)}
-            color={definition.color}
-          />
-        ))}
+        {blockType === 'manualTrigger' ? (
+          <button
+            type="button"
+            onClick={handleManualRun}
+            className="nodrag w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-amber-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors"
+          >
+            <Play size={12} fill="currentColor" />
+            Run Once
+          </button>
+        ) : (
+          definition.inputs.map((field) => (
+            <BlockInput
+              key={field.name}
+              field={field}
+              value={inputs[field.name]}
+              onChange={(val) => updateInput(field.name, val)}
+              color={definition.color}
+            />
+          ))
+        )}
 
         {definition.outputs.length > 0 && (
           <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-800/60">

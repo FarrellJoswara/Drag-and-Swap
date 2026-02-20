@@ -31,3 +31,25 @@ export async function getTransactionCount(address: string): Promise<string> {
   const hex: string = await rpc('eth_getTransactionCount', [address, 'latest'])
   return String(parseInt(hex, 16))
 }
+
+// ─── Block-specific functions (stub: console.log + return outputs) ───
+
+export async function watchWallet(inputs: Record<string, string>): Promise<{ txHash: string; value: string; from: string; to: string }> {
+  console.log('watchWallet')
+  return { txHash: '', value: '', from: inputs.walletAddress ?? '', to: '' }
+}
+
+export async function ethBalance(_inputs: Record<string, string>): Promise<{ balance: string; balanceUsd: string }> {
+  console.log('ethBalance')
+  return { balance: '', balanceUsd: '' }
+}
+
+export async function txHistory(_inputs: Record<string, string>): Promise<{ transactions: string; count: string }> {
+  console.log('txHistory')
+  return { transactions: '[]', count: '' }
+}
+
+export async function gasGuard(_inputs: Record<string, string>): Promise<{ currentGas: string; passed: string }> {
+  console.log('gasGuard')
+  return { currentGas: '', passed: '' }
+}

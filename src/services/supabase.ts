@@ -28,3 +28,10 @@ export async function saveKeyValue(
   console.log('[supabase] would save', pairs)
   return { saved: `${pairs.length} pair(s)` }
 }
+
+// ─── Block-specific functions (stub: console.log + return outputs) ───
+
+export async function dataStore(_inputs: Record<string, string>): Promise<{ saved: string }> {
+  console.log('dataStore')
+  return { saved: '' }
+}

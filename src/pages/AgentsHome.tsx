@@ -1,6 +1,6 @@
 import { usePrivy } from '@privy-io/react-auth'
 import { Link } from 'react-router-dom'
-import { Repeat2, Plus, Wallet, LayoutGrid, ArrowRight } from 'lucide-react'
+import { Plus, Wallet, LayoutGrid, ArrowRight } from 'lucide-react'
 import { useAgents } from '../contexts/AgentsContext'
 import { useWalletAddress } from '../hooks/useWalletAddress'
 import AgentCard from '../components/agents/AgentCard'
