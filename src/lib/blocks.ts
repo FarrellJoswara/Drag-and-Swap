@@ -332,14 +332,14 @@ registerBlock({
     { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
     { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
     { name: 'chainId', label: 'Chain', type: 'select', options: ['1', '10', '8453', '42161', '137'], defaultValue: '1' },
-    { name: 'swapper', label: 'Wallet Address', type: 'address', placeholder: '0x... or use connected wallet', allowVariable: true },
+    { name: 'swapper', label: 'Wallet', type: 'walletAddress' },
   ],
   outputs: [
     { name: 'txHash', label: 'Transaction Hash' },
     { name: 'amountOut', label: 'Amount Received' },
     { name: 'gasUsed', label: 'Gas Used' },
   ],
-  run: async (inputs) => swap(inputs),
+  run: async (inputs, context) => swap(inputs, context),
 })
 
 // ─── Filter Blocks ───────────────────────────────────────

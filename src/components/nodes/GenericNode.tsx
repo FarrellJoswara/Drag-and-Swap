@@ -12,6 +12,7 @@ import { buildConnectedModel } from '../../utils/buildConnectedModel'
 import { runDownstreamGraph } from '../../lib/runAgent'
 import { useToast } from '../ui/Toast'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
+import { useSendTransaction } from '../../hooks/useSendTransaction'
 
 /** Get color class for output type */
 function getTypeColor(type?: string): string {
@@ -37,6 +38,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const { setNodes, getNodes, getEdges } = useReactFlow()
   const { toast } = useToast()
   const walletAddress = useWalletAddress()
+  const sendTransaction = useSendTransaction()
 
   // #region agent log
   fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'GenericNode.tsx:33',message:'GenericNode rendering',data:{nodeId:id,blockType,hasDefinition:!!definition,inputCount:definition?.inputs.length,outputCount:definition?.outputs.length,category:definition?.category},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
@@ -103,13 +105,13 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     const edges = getEdges()
     const model = buildConnectedModel(nodes, edges)
     try {
-      await runDownstreamGraph(model, id, { triggered: 'true' }, { walletAddress: walletAddress ?? undefined })
+      await runDownstreamGraph(model, id, { triggered: 'true' }, { walletAddress: walletAddress ?? undefined, sendTransaction: sendTransaction ?? undefined })
       toast('Agent ran successfully', 'success')
     } catch (err) {
       console.error('[manualTrigger] Run failed:', err)
       toast(err instanceof Error ? err.message : 'Run failed', 'error')
     }
-  }, [id, getNodes, getEdges, toast, walletAddress])
+  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction])
 
   return (
     <div className="relative">
@@ -185,6 +187,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       {definition.category !== 'trigger' && (
         <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-center gap-1 -ml-[5px]">
           {definition.inputs.map((field) => {
+            if (field.type === 'walletAddress') {
+              return <div key={field.name} className="w-[5px]" aria-hidden />
+            }
             const isConnected = inputConnections[field.name]
             // #region agent log
             fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'GenericNode.tsx:178',message:'Rendering input handle',data:{nodeId:id,fieldName:field.name,inputCount:definition.inputs.length,isConnected},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});

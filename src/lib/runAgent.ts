@@ -26,9 +26,20 @@ function resolveVariables(
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/
 
+export type SwapTx = {
+  to: string
+  from: string
+  data: string
+  value: string
+  chainId: number
+  gasLimit?: string
+}
+
 export type RunContext = {
   /** Connected wallet address (e.g. from Privy). Used when swap block's Wallet Address is empty. */
   walletAddress?: string | null
+  /** Send a transaction (e.g. Uniswap swap). When provided, swap block will sign and broadcast. */
+  sendTransaction?: ((tx: SwapTx) => Promise<string>) | null
 }
 
 /**
@@ -106,7 +117,7 @@ export async function runDownstreamGraph(
     }
 
     try {
-      const result = await def.run(inputs)
+      const result = await def.run(inputs, context)
       outputs.set(nodeId, result)
       processed.add(nodeId)
       console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, result)

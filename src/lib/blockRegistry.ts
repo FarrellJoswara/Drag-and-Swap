@@ -37,6 +37,7 @@ export type InputFieldType =
   | 'toggle'
   | 'textarea'
   | 'address'
+  | 'walletAddress'
   | 'slider'
   | 'tokenSelect'
   | 'variable'
@@ -90,7 +91,7 @@ export interface BlockDefinition {
   service?: BlockService
   inputs: InputField[]
   outputs: OutputField[]
-  run: (inputs: Record<string, string>) => Promise<Record<string, string>>
+  run: (inputs: Record<string, string>, context?: import('./runAgent').RunContext) => Promise<Record<string, string>>
   /** Interrupt-based: subscribe to events, call onTrigger when they occur. Returns cleanup. */
   subscribe?: (inputs: Record<string, string>, onTrigger: TriggerCallback) => Unsubscribe
 }

@@ -138,7 +138,11 @@ async function getQuote(amount: string, tokenInChainId: number, tokenOutChainId:
     return fetch('/api/uniswap/quote', options).then(res => res.json())
 }
 
-export async function swap(inputs: Record<string, string>) {
+export type SwapContext = {
+  sendTransaction?: ((tx: { to: string; from: string; data: string; value: string; chainId: number; gasLimit?: string }) => Promise<string>) | null
+}
+
+export async function swap(inputs: Record<string, string>, context?: SwapContext) {
     const params = blockInputsToApiParams(inputs)
     const quoteResponse = await getQuote(params.amount, params.tokenInChainId, params.tokenOutChainId, params.tokenIn, params.tokenOut, params.swapper)
 
@@ -160,7 +164,35 @@ export async function swap(inputs: Record<string, string>) {
             return { ...clean, ...(pd && typeof pd === 'object' ? { permitData: pd } : {}), includeGasInfo: false, refreshGasPrice: false, simulateTransaction: false, safetyMode: 'SAFE', urgency: 'urgent' }
         })())
     };
-    return fetch('/api/uniswap/swap', options).then(res => res.json())
+    const swapResponse = await fetch('/api/uniswap/swap', options).then(res => res.json())
+
+    if (swapResponse?.errorCode) {
+        throw new Error(swapResponse.detail ?? `Swap failed: ${swapResponse.errorCode}`)
+    }
+
+    const swapTx = swapResponse?.swap
+    if (swapTx?.to && swapTx?.data && context?.sendTransaction) {
+        const txHash = await context.sendTransaction({
+            to: swapTx.to,
+            from: swapTx.from,
+            data: swapTx.data,
+            value: swapTx.value ?? '0',
+            chainId: swapTx.chainId,
+            gasLimit: swapTx.gasLimit,
+        })
+        const amountOut = swapResponse?.quote?.output?.amount ?? ''
+        return { txHash, amountOut, gasUsed: swapTx.gasLimit ?? '' }
+    }
+
+    if (swapTx?.to && swapTx?.data && !context?.sendTransaction) {
+        throw new Error('Sign in with Privy to execute the swap. Your wallet is required to sign the transaction.')
+    }
+
+    return {
+        txHash: '',
+        amountOut: swapResponse?.quote?.output?.amount ?? '',
+        gasUsed: swapTx?.gasLimit ?? '',
+    }
 }
 
 // const main = async () => {

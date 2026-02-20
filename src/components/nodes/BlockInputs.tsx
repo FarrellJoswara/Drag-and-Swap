@@ -7,6 +7,8 @@ import {
   focusColorClass,
   accentBgClass,
 } from '../../lib/blockRegistry'
+import { useWalletAddress } from '../../hooks/useWalletAddress'
+import { usePrivy } from '@privy-io/react-auth'
 
 // ── Shared ────────────────────────────────────────────────
 
@@ -216,6 +218,40 @@ function AddressInput({ field, value, onChange, color }: BlockInputProps) {
   )
 }
 
+function WalletAddressInput({ field, color }: BlockInputProps) {
+  const walletAddress = useWalletAddress()
+  const { login } = usePrivy()
+  const accent = accentBgClass[color]
+
+  if (walletAddress) {
+    return (
+      <div className="flex flex-col gap-1">
+        <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+        <div className="nodrag flex items-center gap-2 px-2.5 py-1.5 bg-slate-900/80 border border-slate-700 rounded-md">
+          <Wallet size={12} className="text-slate-500 flex-shrink-0" />
+          <span className="text-[11px] font-mono text-slate-300 truncate" title={walletAddress}>
+            {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+      <button
+        type="button"
+        onClick={login}
+        className={`nodrag w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-white rounded-md transition-colors ${accent} hover:opacity-90`}
+      >
+        <Wallet size={14} />
+        Connect Wallet
+      </button>
+    </div>
+  )
+}
+
 function SliderInput({ field, value, onChange, color }: BlockInputProps) {
   const min = field.min ?? 0
   const max = field.max ?? 100
@@ -329,6 +365,7 @@ const renderers: Record<string, React.FC<BlockInputProps>> = {
   toggle: ToggleInput,
   textarea: TextareaInput,
   address: AddressInput,
+  walletAddress: WalletAddressInput,
   slider: SliderInput,
   tokenSelect: TokenSelectInput,
   keyValue: KeyValueInput,
