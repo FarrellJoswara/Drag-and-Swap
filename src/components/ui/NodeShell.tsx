@@ -6,7 +6,7 @@ interface NodeShellProps {
   children: ReactNode
   label: string
   icon: ReactNode
-  category: 'trigger' | 'action' | 'filter'
+  category: 'trigger' | 'action' | 'filter' | 'display'
   badge: string
   badgeColor: BadgeColor
   selected?: boolean

@@ -121,6 +121,7 @@ registerBlock({
       name: 'streamType',
       label: 'Stream Type',
       type: 'select',
+      // Use underlying stream type values for now to remain backward compatible
       options: ['trades', 'orders', 'book_updates', 'twap', 'events', 'writer_actions'],
       defaultValue: 'trades',
     },
@@ -176,7 +177,25 @@ registerBlock({
     }
   },
   subscribe: (inputs, onTrigger) => {
-    const streamType = (inputs.streamType || 'trades') as HyperliquidStreamType
+    const rawStreamType = (inputs.streamType || 'trades').trim()
+    // Allow both friendly labels and raw values for future compatibility
+    const streamTypeMap: Record<string, HyperliquidStreamType> = {
+      trades: 'trades',
+      'Trade Alert': 'trades',
+      orders: 'orders',
+      'Order Fill Alert': 'orders',
+      book_updates: 'book_updates',
+      'Book Update Monitor': 'book_updates',
+      twap: 'twap',
+      'TWAP Status Alert': 'twap',
+      events: 'events',
+      'Events Monitor': 'events',
+      writer_actions: 'writer_actions',
+      'Writer Actions': 'writer_actions',
+    }
+    const streamType =
+      (streamTypeMap[rawStreamType] as HyperliquidStreamType | undefined) ?? 'trades'
+
     const filters: HyperliquidFilters = {}
 
     // Build filters based on stream type and provided inputs
@@ -187,12 +206,24 @@ registerBlock({
       filters.user = [inputs.user.trim()]
     }
     if (inputs.side && inputs.side !== 'Both') {
-      filters.side = [inputs.side]
+      // Side filter only applies to streams that support sides
+      if (streamType === 'trades' || streamType === 'orders' || streamType === 'book_updates') {
+        filters.side = [inputs.side]
+      } else {
+        console.warn(
+          `[hyperliquidStream] Side filter does not apply to stream type "${streamType}", ignoring side filter`,
+        )
+      }
     }
 
     // Subscribe to the stream
     const unsubscribe = subscribe(streamType, filters, (msg: HyperliquidStreamMessage) => {
-      const events = msg.data?.events ?? (msg as any).events
+      const eventsFromData = msg.data?.events
+      const legacyEvents =
+        eventsFromData == null
+          ? (msg as HyperliquidStreamMessage & { events?: unknown[] }).events
+          : undefined
+      const events = eventsFromData ?? legacyEvents ?? []
       if (!Array.isArray(events) || events.length === 0) return
 
       // Process each event
@@ -207,6 +238,82 @@ registerBlock({
     })
 
     return unsubscribe
+  },
+})
+
+// ─── Stream Display Block (Visualization / Debug) ──────────
+
+registerBlock({
+  type: 'streamDisplay',
+  label: 'Stream Display',
+  description:
+    'Display events from a JSON data stream. Connect outputs like Hyperliquid Stream → data.',
+  category: 'display',
+  color: 'blue',
+  icon: 'eye',
+  inputs: [
+    {
+      name: 'data',
+      label: 'Event Data',
+      type: 'textarea',
+      placeholder: 'Connect a JSON event stream output here',
+      rows: 3,
+      allowVariable: true,
+      // Accept JSON or string outputs from upstream blocks
+      accepts: ['json', 'string'],
+    },
+    {
+      name: 'label',
+      label: 'Feed Label',
+      type: 'text',
+      placeholder: 'BTC Trades',
+      defaultValue: 'Stream Feed',
+    },
+    {
+      name: 'fields',
+      label: 'Fields to Show (comma-separated)',
+      type: 'text',
+      placeholder: 'price, side, coin',
+    },
+    {
+      name: 'maxItems',
+      label: 'Max Items',
+      type: 'number',
+      placeholder: '50',
+      defaultValue: '50',
+    },
+    {
+      name: 'compact',
+      label: 'Compact View',
+      type: 'toggle',
+      defaultValue: 'true',
+    },
+  ],
+  outputs: [
+    {
+      name: 'lastEvent',
+      label: 'Last Event (JSON)',
+      type: 'json',
+    },
+  ],
+  run: async (inputs) => {
+    const raw = inputs.data ?? ''
+    let lastEvent = raw
+
+    // Try to normalize to pretty JSON string; fall back to raw on error
+    try {
+      if (typeof raw === 'string' && raw.trim()) {
+        const parsed = JSON.parse(raw)
+        lastEvent = JSON.stringify(parsed)
+      }
+    } catch {
+      // Keep raw value if it is not valid JSON
+      lastEvent = raw
+    }
+
+    return {
+      lastEvent,
+    }
   },
 })
 
@@ -305,8 +412,22 @@ registerBlock({
   color: 'yellow',
   icon: 'filter',
   inputs: [
-    { name: 'minValue', label: 'Min Value', type: 'number', placeholder: '0', allowVariable: true },
-    { name: 'maxValue', label: 'Max Value', type: 'number', placeholder: '1000000', allowVariable: true },
+    {
+      name: 'minValue',
+      label: 'Min Value',
+      type: 'number',
+      placeholder: '0',
+      allowVariable: true,
+      accepts: ['number', 'string'],
+    },
+    {
+      name: 'maxValue',
+      label: 'Max Value',
+      type: 'number',
+      placeholder: '1000000',
+      allowVariable: true,
+      accepts: ['number', 'string'],
+    },
     { name: 'passThrough', label: 'Pass All Data Through', type: 'toggle', defaultValue: 'true' },
   ],
   outputs: [

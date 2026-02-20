@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Braces, ChevronDown, ChevronRight, Filter, Info, LayoutGrid, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
+import { Braces, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
 import { useState, useMemo, type DragEvent } from 'react'
 import {
   getBlocksByCategory,
@@ -82,7 +82,7 @@ function CollapsibleCategorySection({
 }: {
   title: string
   icon: React.ReactNode
-  category: 'trigger' | 'action' | 'filter'
+  category: 'trigger' | 'action' | 'filter' | 'display'
   query: string
   defaultOpen?: boolean
 }) {
@@ -199,7 +199,8 @@ export default function Sidebar() {
     const hasTriggers = filterBlocks(getBlocksByCategory('trigger'), query).length > 0
     const hasActions = filterBlocks(getBlocksByCategory('action'), query).length > 0
     const hasFilters = filterBlocks(getBlocksByCategory('filter'), query).length > 0
-    return !hasTriggers && !hasActions && !hasFilters
+    const hasDisplay = filterBlocks(getBlocksByCategory('display'), query).length > 0
+    return !hasTriggers && !hasActions && !hasFilters && !hasDisplay
   }, [query])
   const noVariables = filteredVariables.length === 0 && variables.length === 0
 
@@ -245,6 +246,7 @@ export default function Sidebar() {
         <CollapsibleCategorySection title="Triggers" icon={<Zap size={11} />} category="trigger" query={query} />
         <CollapsibleCategorySection title="Actions" icon={<Repeat2 size={11} />} category="action" query={query} />
         <CollapsibleCategorySection title="Filters" icon={<Filter size={11} />} category="filter" query={query} />
+        <CollapsibleCategorySection title="Display" icon={<Eye size={11} />} category="display" query={query} />
 
         {noBlocks && noVariables && query && (
           <div className="text-center py-8">

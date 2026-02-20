@@ -60,8 +60,17 @@ export function subscribe(
 
   const unsubscribeFn = () => {
     try {
-      ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'hl_unsubscribe', params: { streamType }, id: id + 1000 }))
-    } catch {}
+      ws.send(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'hl_unsubscribe',
+          params: { streamType },
+          id: id + 1000,
+        }),
+      )
+    } catch (error) {
+      console.warn('[Hyperliquid WS] error sending unsubscribe', error)
+    }
     ws.close()
     activeSubscriptions.delete(id)
   }
@@ -329,8 +338,22 @@ export function normalizeStreamEventToUnifiedOutputs(
     }
     case 'events': {
       // Events stream has nested inner types
-      const ev = event as any
-      const inner = ev?.inner
+      type EventsStreamPayload = {
+        inner?: {
+          LedgerUpdate?: {
+            delta?: { user?: string; coin?: string; amount?: string; usdc?: string; usd?: string; type?: string }
+            users?: [string, string?]
+          }
+          CDeposit?: { user?: string; amount?: string }
+          CWithdrawal?: { user?: string; amount?: string }
+          Delegation?: { user?: string; amount?: string }
+        }
+        hash?: string
+        time?: string
+      }
+
+      const ev = event as EventsStreamPayload
+      const inner = ev.inner
       if (inner?.LedgerUpdate) {
         const lu = inner.LedgerUpdate
         const delta = lu.delta ?? {}

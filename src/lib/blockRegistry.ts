@@ -66,7 +66,7 @@ export interface OutputField {
   type?: 'string' | 'number' | 'address' | 'json' | 'boolean'
 }
 
-export type BlockCategory = 'trigger' | 'action' | 'filter'
+export type BlockCategory = 'trigger' | 'action' | 'filter' | 'display'
 export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose' | 'yellow'
 export type BlockService = 'quicknode' | 'hyperliquid' | 'uniswap'
 
