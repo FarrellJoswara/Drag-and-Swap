@@ -95,14 +95,23 @@ export async function runDownstreamGraph(
 
     const inputs: Record<string, string> = {}
     for (const field of def.inputs) {
-      let val = (node.data[field.name] != null ? String(node.data[field.name]) : field.defaultValue ?? '') as string
+      const storedVal = (node.data[field.name] != null ? String(node.data[field.name]) : field.defaultValue ?? '') as string
+      let val = storedVal
 
       const conn = node.inputs.find((c) => c.targetHandle === field.name)
       if (conn) {
         const srcOuts = outputs.get(conn.sourceNodeId)
         if (srcOuts) {
           const outName = conn.sourceHandle ?? Object.keys(srcOuts)[0]
-          val = srcOuts[outName] ?? val
+          const connectedVal = srcOuts[outName] ?? val
+          // If connected value is invalid for number fields (e.g. "true" from trigger), fall back to stored value
+          if (field.type === 'number' && connectedVal) {
+            const n = Number(connectedVal)
+            if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
+            else val = connectedVal
+          } else {
+            val = connectedVal
+          }
         }
       }
       inputs[field.name] = resolveVariables(val, outputs)

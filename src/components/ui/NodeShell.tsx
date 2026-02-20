@@ -40,9 +40,6 @@ const topBorderStyles: Record<BadgeColor, string> = {
 }
 
 export default function NodeShell({ children, label, icon, badge, badgeColor, selected }: NodeShellProps) {
-  // #region agent log
-  fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'NodeShell.tsx:42',message:'NodeShell rendering',data:{hasOverflowHidden:false,label},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
   return (
     <div
       className={[

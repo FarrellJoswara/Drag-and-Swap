@@ -93,14 +93,25 @@ function toSmallestUnit(amount: string, symbol: string): string {
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/
 
+/** Valid chain IDs for Uniswap Trading API */
+const VALID_CHAIN_IDS = new Set([1, 10, 137, 42161, 56, 8453, 81457, 43114, 42220, 7777777, 324, 11155111, 1301, 480, 84532, 130, 1868, 143, 196])
+
+const NUMERIC_AMOUNT_REGEX = /^\d+(\.\d+)?$/
+
 function blockInputsToApiParams(inputs: Record<string, string>) {
-  const chainId = Number(inputs.chainId || '1')
+  const rawChainId = inputs.chainId ?? '1'
+  const chainId = VALID_CHAIN_IDS.has(Number(rawChainId)) ? Number(rawChainId) : 1
   const swapper = String(inputs.swapper ?? '').trim()
   if (!swapper || !ADDRESS_REGEX.test(swapper)) {
     throw new Error('Wallet Address is required. Enter a 0x... address, or sign in with Privy to use your connected wallet.')
   }
+  let rawAmount = String(inputs.amount ?? '0').trim()
+  if (!rawAmount || !NUMERIC_AMOUNT_REGEX.test(rawAmount) || Number(rawAmount) <= 0) {
+    console.warn('[swap] Amount invalid (e.g. from trigger connection). Using 1. Enter a fixed value in the Amount field or connect a block that outputs a number.')
+    rawAmount = '1'
+  }
   return {
-    amount: toSmallestUnit(inputs.amount || '0', inputs.fromToken || 'ETH'),
+    amount: toSmallestUnit(rawAmount, inputs.fromToken || 'ETH'),
     tokenInChainId: chainId,
     tokenOutChainId: chainId,
     tokenIn: resolveTokenAddress(inputs.fromToken || 'ETH', chainId),

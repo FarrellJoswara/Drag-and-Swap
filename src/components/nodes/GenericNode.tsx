@@ -40,10 +40,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const walletAddress = useWalletAddress()
   const sendTransaction = useSendTransaction()
 
-  // #region agent log
-  fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'GenericNode.tsx:33',message:'GenericNode rendering',data:{nodeId:id,blockType,hasDefinition:!!definition,inputCount:definition?.inputs.length,outputCount:definition?.outputs.length,category:definition?.category},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
-
   if (!definition) {
     return (
       <div className="p-3 bg-red-900/50 border border-red-800 rounded-lg text-xs text-red-300">
@@ -191,9 +187,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               return <div key={field.name} className="w-[5px]" aria-hidden />
             }
             const isConnected = inputConnections[field.name]
-            // #region agent log
-            fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'GenericNode.tsx:178',message:'Rendering input handle',data:{nodeId:id,fieldName:field.name,inputCount:definition.inputs.length,isConnected},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
             return (
               <Handle
                 key={field.name}
@@ -210,9 +203,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       {/* Output handles on right side, aligned with outputs */}
       <div className="absolute right-0 top-0 bottom-0 flex flex-col justify-center gap-1 -mr-[5px]">
         {definition.outputs.map((out) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'GenericNode.tsx:197',message:'Rendering output handle',data:{nodeId:id,outputName:out.name,outputCount:definition.outputs.length},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
           return (
             <Handle
               key={out.name}

@@ -37,9 +37,16 @@ export function isValidConnection(
   const sourceOutput = sourceBlock.outputs.find((o: OutputField) => o.name === sourceHandle)
   const targetInput = targetBlock.inputs.find((i: InputField) => i.name === targetHandle)
 
-  // Allow if fields are missing (backward compatibility)
-  if (!sourceOutput || !targetInput) {
-    return { valid: true }
+  // Reject if target handle doesn't exist (e.g. slippage, swapper when no handle is rendered)
+  if (!targetInput) {
+    return { valid: false, reason: `Target input "${targetHandle}" does not exist on this block` }
+  }
+  // Reject if target is walletAddress - no handle is rendered for these
+  if (targetInput.type === 'walletAddress') {
+    return { valid: false, reason: 'Wallet inputs use the connected wallet and cannot receive connections' }
+  }
+  if (!sourceOutput) {
+    return { valid: true, reason: 'Source output not found, allowing connection' }
   }
 
   // If neither has type information, allow (backward compatibility)

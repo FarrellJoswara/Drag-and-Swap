@@ -75,22 +75,41 @@ function modelToFlowData(model: { nodes: { id: string; type: string; data: Recor
   return { nodes, edges }
 }
 
+/** Remove edges that reference non-existent target handles (e.g. slippage, swapper on swap block) */
+function filterInvalidEdges(nodes: Node[], edges: Edge[]): Edge[] {
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  return edges.filter((e) => {
+    if (!e.targetHandle) return true
+    const targetNode = nodeMap.get(e.target)
+    if (!targetNode) return true
+    const blockType = (targetNode.data?.blockType as string) ?? targetNode.type
+    const def = getBlock(blockType)
+    if (!def) return true
+    const input = def.inputs.find((i) => i.name === e.targetHandle)
+    if (!input) return false
+    if (input.type === 'walletAddress') return false
+    return true
+  })
+}
+
 /** Ensure node positions are valid { x, y } objects (handles stored/legacy data) */
 function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes: Node[]; edges: Edge[] } {
-  return {
-    nodes: flowData.nodes.map((n) => ({
-      ...n,
-      position: {
-        x: typeof n.position?.x === 'number' ? n.position.x : 0,
-        y: typeof n.position?.y === 'number' ? n.position.y : 0,
-      },
-    })),
-    edges: flowData.edges.map((e) => ({
+  const nodes = flowData.nodes.map((n) => ({
+    ...n,
+    position: {
+      x: typeof n.position?.x === 'number' ? n.position.x : 0,
+      y: typeof n.position?.y === 'number' ? n.position.y : 0,
+    },
+  }))
+  const edges = filterInvalidEdges(
+    nodes,
+    flowData.edges.map((e) => ({
       ...e,
       animated: e.animated ?? true,
       style: e.style ?? { stroke: '#6366f1', strokeWidth: 2 },
     })),
-  }
+  )
+  return { nodes, edges }
 }
 
 export default function App() {
