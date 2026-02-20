@@ -27,6 +27,7 @@ import { useAgents } from './contexts/AgentsContext'
 import { getBlock, minimapColor } from './lib/blockRegistry'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
+import { isValidConnection } from './utils/connectionValidation'
 import './lib/blocks'
 
 const nodeTypes: NodeTypes = {
@@ -148,6 +149,45 @@ export default function App() {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      // Basic validation - ensure connection has required fields
+      if (!connection.source || !connection.target) {
+        console.warn('[Connection] Invalid connection object:', connection)
+        return
+      }
+
+      // Get current nodes from state (use ref to avoid stale closure)
+      const currentNodes = nodesRef.current
+
+      // Validate connection types (only if both handles are present)
+      const sourceNode = currentNodes.find((n) => n.id === connection.source)
+      const targetNode = currentNodes.find((n) => n.id === connection.target)
+
+      // Only validate types if we have complete information
+      if (sourceNode && targetNode && connection.sourceHandle && connection.targetHandle) {
+        try {
+          const validation = isValidConnection(
+            sourceNode,
+            targetNode,
+            connection.sourceHandle,
+            connection.targetHandle,
+          )
+
+          if (!validation.valid) {
+            toast(validation.reason || 'Invalid connection', 'warning')
+            return // Reject connection
+          }
+
+          // Warn but allow if there's a reason (backward compatibility)
+          if (validation.reason && validation.valid) {
+            console.warn('[Connection]', validation.reason)
+          }
+        } catch (error) {
+          // If validation throws an error, allow the connection (backward compatibility)
+          console.warn('[Connection] Validation error, allowing connection:', error)
+        }
+      }
+
+      // Create the edge
       takeSnapshot()
       setEdges((eds) =>
         addEdge(
@@ -156,7 +196,7 @@ export default function App() {
         ),
       )
     },
-    [setEdges, takeSnapshot],
+    [setEdges, takeSnapshot, toast],
   )
 
   const onDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {

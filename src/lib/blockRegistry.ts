@@ -55,11 +55,15 @@ export interface InputField {
   step?: number
   rows?: number
   tokens?: string[]
+  /** Array of accepted output types for connection validation */
+  accepts?: string[]
 }
 
 export interface OutputField {
   name: string
   label: string
+  /** Optional type hint for connection validation and UI display */
+  type?: 'string' | 'number' | 'address' | 'json' | 'boolean'
 }
 
 export type BlockCategory = 'trigger' | 'action' | 'filter'

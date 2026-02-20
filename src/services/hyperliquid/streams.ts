@@ -243,86 +243,122 @@ export function writerActionEventToOutputs(event: WriterActionEvent): Record<str
   }
 }
 
-// ─── Block-facing stubs (stream triggers) ───
-// Real data is injected by useHyperstreamSockets when the flow runs; run() here just returns empty outputs.
-
-export async function tradeAlert(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('tradeAlert')
-  return { coin: '', price: '', size: '', side: '', direction: '', user: '', hash: '', fee: '', tradeId: '' }
-}
-
-export async function liquidationWatcher(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('liquidationWatcher')
-  return { coin: '', price: '', size: '', side: '', liquidatedUser: '', markPrice: '', method: '', closedPnl: '' }
-}
-
-export async function whaleTrade(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('whaleTrade')
-  return { coin: '', price: '', size: '', side: '', user: '', direction: '', hash: '' }
-}
-
-export async function orderFillAlert(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('orderFillAlert')
-  return {
-    user: '', coin: '', side: '', status: '', limitPrice: '', size: '', origSize: '', orderType: '', orderId: '', hash: '',
+/**
+ * Unified normalization function that converts any stream type event to unified outputs.
+ * Returns streamlined outputs optimized for the connection system.
+ */
+export function normalizeStreamEventToUnifiedOutputs(
+  streamType: HyperliquidStreamType,
+  event: unknown,
+  rawMessage?: HyperliquidStreamMessage
+): Record<string, string> {
+  const outputs: Record<string, string> = {
+    streamType,
+    data: '',
+    user: '',
+    coin: '',
+    hash: '',
+    timestamp: '',
+    price: '0',
+    size: '0',
+    amount: '0',
+    status: '',
+    side: '',
   }
-}
 
-export async function orderRejectionMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('orderRejectionMonitor')
-  return { user: '', coin: '', status: '', side: '', size: '', limitPrice: '' }
-}
-
-export async function bookUpdateMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('bookUpdateMonitor')
-  return { coin: '', side: '', price: '', size: '', action: '', user: '', orderId: '' }
-}
-
-export async function twapStatusAlert(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('twapStatusAlert')
-  return {
-    twapId: '', coin: '', user: '', side: '', totalSize: '', executedSize: '', executedNotional: '', minutes: '', status: '', progress: '',
+  // Parse the raw event data into JSON string
+  try {
+    outputs.data = JSON.stringify(event)
+  } catch {
+    outputs.data = ''
   }
-}
 
-export async function depositMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('depositMonitor')
-  return { user: '', amount: '', hash: '', timestamp: '' }
-}
-
-export async function withdrawalMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('withdrawalMonitor')
-  return { user: '', amount: '', fee: '', hash: '' }
-}
-
-export async function transferMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('transferMonitor')
-  return { type: '', user: '', destination: '', token: '', amount: '', usdcValue: '', hash: '' }
-}
-
-export async function vaultActivityMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('vaultActivityMonitor')
-  return { type: '', vault: '', user: '', amount: '', commission: '', hash: '' }
-}
-
-export async function fundingPayment(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('fundingPayment')
-  return { user: '', data: '', hash: '' }
-}
-
-export async function crossChainMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('crossChainMonitor')
-  return { user: '', amount: '', direction: '', isFinalized: '', hash: '' }
-}
-
-export async function delegationMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('delegationMonitor')
-  return { user: '', validator: '', amount: '', isUndelegate: '', hash: '' }
-}
-
-export async function systemTransferMonitor(_inputs: Record<string, string>): Promise<Record<string, string>> {
-  console.log('systemTransferMonitor')
-  return {
-    user: '', destination: '', tokenId: '', amount: '', actionType: '', evmTxHash: '', nonce: '',
+  // Extract timestamp from raw message if available
+  if (rawMessage?.data?.block_time) {
+    outputs.timestamp = rawMessage.data.block_time
   }
+
+  // Normalize based on stream type
+  switch (streamType) {
+    case 'trades': {
+      const trade = tradeEventToOutputs(event as TradeEvent)
+      outputs.user = trade.user ?? ''
+      outputs.coin = trade.coin ?? ''
+      outputs.hash = trade.hash ?? ''
+      outputs.price = trade.price ?? '0'
+      outputs.size = trade.size ?? '0'
+      outputs.side = trade.side ?? ''
+      break
+    }
+    case 'orders': {
+      const order = orderEventToOutputs(event as OrderEvent)
+      outputs.user = order.user ?? ''
+      outputs.coin = order.coin ?? ''
+      outputs.hash = order.hash ?? ''
+      outputs.price = order.limitPrice ?? '0'
+      outputs.size = order.size ?? '0'
+      outputs.status = order.status ?? ''
+      outputs.side = order.side ?? ''
+      break
+    }
+    case 'book_updates': {
+      const book = bookUpdateEventToOutputs(event as BookUpdateEvent)
+      outputs.coin = book.coin ?? ''
+      outputs.side = book.side ?? ''
+      outputs.price = book.price ?? '0'
+      outputs.size = book.size ?? '0'
+      outputs.user = book.user ?? ''
+      break
+    }
+    case 'twap': {
+      const twap = twapEventToOutputs(event as TwapEvent)
+      outputs.user = twap.user ?? ''
+      outputs.coin = twap.coin ?? ''
+      outputs.side = twap.side ?? ''
+      outputs.size = twap.executedSize ?? '0'
+      outputs.amount = twap.executedNotional ?? '0'
+      outputs.status = twap.status ?? ''
+      break
+    }
+    case 'writer_actions': {
+      const writer = writerActionEventToOutputs(event as WriterActionEvent)
+      outputs.user = writer.user ?? ''
+      outputs.hash = writer.evmTxHash ?? ''
+      outputs.amount = writer.amount ?? '0'
+      break
+    }
+    case 'events': {
+      // Events stream has nested inner types
+      const ev = event as any
+      const inner = ev?.inner
+      if (inner?.LedgerUpdate) {
+        const lu = inner.LedgerUpdate
+        const delta = lu.delta ?? {}
+        outputs.user = (lu.users?.[0] ?? delta.user ?? '') as string
+        outputs.coin = (delta.coin ?? '') as string
+        outputs.amount = (delta.amount ?? delta.usdc ?? delta.usd ?? '') as string
+        outputs.status = (delta.type ?? '') as string
+      }
+      if (inner?.CDeposit) {
+        outputs.user = inner.CDeposit.user ?? ''
+        outputs.amount = inner.CDeposit.amount ?? ''
+        outputs.status = 'CDeposit'
+      }
+      if (inner?.CWithdrawal) {
+        outputs.user = inner.CWithdrawal.user ?? ''
+        outputs.amount = inner.CWithdrawal.amount ?? ''
+        outputs.status = 'CWithdrawal'
+      }
+      if (inner?.Delegation) {
+        outputs.user = inner.Delegation.user ?? ''
+        outputs.amount = inner.Delegation.amount ?? ''
+        outputs.status = 'Delegation'
+      }
+      if (ev?.hash) outputs.hash = ev.hash
+      if (ev?.time) outputs.timestamp = ev.time
+      break
+    }
+  }
+
+  return outputs
 }

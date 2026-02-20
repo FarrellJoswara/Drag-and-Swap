@@ -18,7 +18,7 @@ export type {
 // Export all Info API functions
 export * from './info'
 
-// Export streams functions and block stubs
+// Export streams functions
 export {
   subscribe,
   tradeEventToOutputs,
@@ -26,21 +26,7 @@ export {
   bookUpdateEventToOutputs,
   twapEventToOutputs,
   writerActionEventToOutputs,
-  tradeAlert,
-  liquidationWatcher,
-  whaleTrade,
-  orderFillAlert,
-  orderRejectionMonitor,
-  bookUpdateMonitor,
-  twapStatusAlert,
-  depositMonitor,
-  withdrawalMonitor,
-  transferMonitor,
-  vaultActivityMonitor,
-  fundingPayment,
-  crossChainMonitor,
-  delegationMonitor,
-  systemTransferMonitor,
+  normalizeStreamEventToUnifiedOutputs,
 } from './streams'
 
 // Export RPC functions

@@ -40,38 +40,44 @@ const topBorderStyles: Record<BadgeColor, string> = {
 }
 
 export default function NodeShell({ children, label, icon, badge, badgeColor, selected }: NodeShellProps) {
+  // #region agent log
+  fetch('http://127.0.0.1:7567/ingest/1bc99ae9-bfe4-4e0d-a202-4de374468249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'62c44c'},body:JSON.stringify({sessionId:'62c44c',location:'NodeShell.tsx:42',message:'NodeShell rendering',data:{hasOverflowHidden:false,label},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   return (
     <div
       className={[
-        'relative w-[220px] rounded-xl overflow-hidden',
+        'relative w-[220px] rounded-xl overflow-visible',
         'bg-[#0f1117] border border-slate-800',
         'shadow-xl shadow-black/50',
         selected ? `ring-1 ${ringStyles[badgeColor]}` : '',
         'transition-all duration-150',
       ].join(' ')}
     >
-      {/* Gradient top accent - clipped by parent overflow-hidden */}
-      <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${topBorderStyles[badgeColor]}`} />
+      {/* Inner container with overflow-hidden for gradient clipping */}
+      <div className="overflow-hidden rounded-xl relative">
+        {/* Gradient top accent */}
+        <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${topBorderStyles[badgeColor]}`} />
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 pt-3 pb-2">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-slate-800 flex items-center justify-center">
-            {icon}
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 pt-3 pb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-slate-800 flex items-center justify-center">
+              {icon}
+            </div>
+            <span className="text-xs font-semibold text-slate-200 tracking-tight">{label}</span>
           </div>
-          <span className="text-xs font-semibold text-slate-200 tracking-tight">{label}</span>
+          <span className={`text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded border ${badgeStyles[badgeColor]}`}>
+            {badge}
+          </span>
         </div>
-        <span className={`text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded border ${badgeStyles[badgeColor]}`}>
-          {badge}
-        </span>
-      </div>
 
-      {/* Divider */}
-      <div className="mx-3 h-px bg-slate-800/80" />
+        {/* Divider */}
+        <div className="mx-3 h-px bg-slate-800/80" />
 
-      {/* Body */}
-      <div className="px-3 py-2.5">
-        {children}
+        {/* Body */}
+        <div className="px-3 py-2.5">
+          {children}
+        </div>
       </div>
     </div>
   )

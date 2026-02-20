@@ -24,119 +24,19 @@
 
 import { registerBlock } from './blockRegistry'
 import {
-  tradeAlert,
-  liquidationWatcher,
-  whaleTrade,
   recentTrades,
-  orderFillAlert,
-  orderRejectionMonitor,
-  bookUpdateMonitor,
   bookSnapshot,
-  twapStatusAlert,
-  depositMonitor,
-  withdrawalMonitor,
-  transferMonitor,
-  vaultActivityMonitor,
-  fundingPayment,
-  crossChainMonitor,
-  delegationMonitor,
   recentEvents,
-  systemTransferMonitor,
-} from '../services/hyperliquid/index'
+  subscribe,
+  type HyperliquidStreamType,
+  type HyperliquidFilters,
+  type HyperliquidStreamMessage,
+} from '../services/hyperliquid'
+import { normalizeStreamEventToUnifiedOutputs } from '../services/hyperliquid/streams'
 import { swapQuote, executeSwap, tokenPrice, priceAlert } from '../services/uniswap'
 import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
-/** Placeholder run for streaming triggers — use useHyperstreamSockets when running the flow. */
-const STREAMING_TRIGGER_MSG = 'Streaming trigger — start flow with useHyperstreamSockets to receive events.'
-
-
 // ─── Hyperliquid Blocks (QuickNode Data Streams) ───────────
-// Streaming triggers: run() returns placeholder; use useHyperstreamSockets to drive flows.
-
-registerBlock({
-  type: 'tradeAlert',
-  label: 'Trade Alert',
-  description: 'Trigger when a trade executes on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'activity',
-  inputs: [
-    { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'HYPE', 'ARB', 'OP', 'DOGE', 'AVAX', 'LINK', 'MATIC'], defaultValue: 'BTC', allowVariable: true },
-    { name: 'side', label: 'Side', type: 'select', options: ['B', 'A', 'Both'], defaultValue: 'Both' },
-    { name: 'user', label: 'User Address (optional)', type: 'address', placeholder: '0x...', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'coin', label: 'Coin' },
-    { name: 'price', label: 'Price' },
-    { name: 'size', label: 'Size' },
-    { name: 'side', label: 'Side' },
-    { name: 'direction', label: 'Direction' },
-    { name: 'user', label: 'User' },
-    { name: 'hash', label: 'Tx Hash' },
-    { name: 'fee', label: 'Fee' },
-    { name: 'tradeId', label: 'Trade ID' },
-  ],
-  run: async (inputs) => {
-    const out = await tradeAlert(inputs)
-    return { ...out, tradeId: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'liquidationWatcher',
-  label: 'Liquidation Watcher',
-  description: 'Trigger when a liquidation occurs on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'zap',
-  inputs: [
-    { name: 'coin', label: 'Coin (optional)', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'CRV', 'HYPE'], allowVariable: true },
-  ],
-  outputs: [
-    { name: 'coin', label: 'Coin' },
-    { name: 'price', label: 'Price' },
-    { name: 'size', label: 'Size' },
-    { name: 'side', label: 'Side' },
-    { name: 'liquidatedUser', label: 'Liquidated User' },
-    { name: 'markPrice', label: 'Mark Price' },
-    { name: 'method', label: 'Method' },
-    { name: 'closedPnl', label: 'Closed PnL' },
-  ],
-  run: async (inputs) => {
-    const out = await liquidationWatcher(inputs)
-    return { ...out, closedPnl: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'whaleTrade',
-  label: 'Whale Trade',
-  description: 'Trigger when a large trade executes on Hyperliquid. Filter by min size in useHyperstreamSockets.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'eye',
-  inputs: [
-    { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'HYPE'], defaultValue: 'BTC', allowVariable: true },
-    { name: 'minSize', label: 'Min Size', type: 'number', placeholder: '10', defaultValue: '1', allowVariable: true },
-    { name: 'side', label: 'Side', type: 'select', options: ['B', 'A', 'Both'], defaultValue: 'Both' },
-  ],
-  outputs: [
-    { name: 'coin', label: 'Coin' },
-    { name: 'price', label: 'Price' },
-    { name: 'size', label: 'Size' },
-    { name: 'side', label: 'Side' },
-    { name: 'user', label: 'User' },
-    { name: 'direction', label: 'Direction' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await whaleTrade(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
 
 registerBlock({
   type: 'recentTrades',
@@ -156,90 +56,6 @@ registerBlock({
     { name: 'lastPrice', label: 'Last Price' },
   ],
   run: async (inputs) => recentTrades(inputs),
-})
-
-registerBlock({
-  type: 'orderFillAlert',
-  label: 'Order Fill Alert',
-  description: 'Trigger when an order is filled on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'bell',
-  inputs: [
-    { name: 'user', label: 'User Address', type: 'address', allowVariable: true },
-    { name: 'coin', label: 'Coin (optional)', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'ZEC'], allowVariable: true },
-    { name: 'statusFilter', label: 'Status', type: 'select', options: ['filled', 'open', 'canceled', 'triggered', 'marginCanceled', 'all'], defaultValue: 'filled' },
-  ],
-  outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'coin', label: 'Coin' },
-    { name: 'side', label: 'Side' },
-    { name: 'status', label: 'Status' },
-    { name: 'limitPrice', label: 'Limit Price' },
-    { name: 'size', label: 'Remaining Size' },
-    { name: 'origSize', label: 'Original Size' },
-    { name: 'orderType', label: 'Order Type' },
-    { name: 'orderId', label: 'Order ID' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await orderFillAlert(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'orderRejectionMonitor',
-  label: 'Order Rejection Monitor',
-  description: 'Trigger when an order is rejected on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'shield',
-  inputs: [
-    { name: 'user', label: 'User Address', type: 'address', allowVariable: true },
-    { name: 'rejectionType', label: 'Rejection Type', type: 'select', options: ['perpMarginRejected', 'spotMarginRejected', 'all'], defaultValue: 'all' },
-  ],
-  outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'coin', label: 'Coin' },
-    { name: 'status', label: 'Rejection Status' },
-    { name: 'side', label: 'Side' },
-    { name: 'size', label: 'Size' },
-    { name: 'limitPrice', label: 'Limit Price' },
-  ],
-  run: async (inputs) => {
-    const out = await orderRejectionMonitor(inputs)
-    return { ...out, limitPrice: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'bookUpdateMonitor',
-  label: 'Book Update Monitor',
-  description: 'Trigger on order book changes on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'barChart',
-  inputs: [
-    { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL'], defaultValue: 'BTC', allowVariable: true },
-    { name: 'side', label: 'Side', type: 'select', options: ['B', 'A', 'Both'], defaultValue: 'Both' },
-  ],
-  outputs: [
-    { name: 'coin', label: 'Coin' },
-    { name: 'side', label: 'Side' },
-    { name: 'price', label: 'Price Level' },
-    { name: 'size', label: 'Size' },
-    { name: 'action', label: 'Action' },
-    { name: 'user', label: 'User' },
-    { name: 'orderId', label: 'Order ID' },
-  ],
-  run: async (inputs) => {
-    const out = await bookUpdateMonitor(inputs)
-    return { ...out, orderId: STREAMING_TRIGGER_MSG }
-  },
 })
 
 registerBlock({
@@ -265,210 +81,6 @@ registerBlock({
 })
 
 registerBlock({
-  type: 'twapStatusAlert',
-  label: 'TWAP Status Alert',
-  description: 'Trigger on TWAP order status changes on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'clock',
-  inputs: [
-    { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
-    { name: 'coin', label: 'Coin (optional)', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'HYPE', 'xyz:NVDA'], allowVariable: true },
-    { name: 'statusFilter', label: 'Status', type: 'select', options: ['activated', 'finished', 'terminated', 'all'], defaultValue: 'all' },
-  ],
-  outputs: [
-    { name: 'twapId', label: 'TWAP ID' },
-    { name: 'coin', label: 'Coin' },
-    { name: 'user', label: 'User' },
-    { name: 'side', label: 'Side' },
-    { name: 'totalSize', label: 'Total Size' },
-    { name: 'executedSize', label: 'Executed Size' },
-    { name: 'executedNotional', label: 'Executed Notional (USD)' },
-    { name: 'minutes', label: 'Duration (min)' },
-    { name: 'status', label: 'Status' },
-    { name: 'progress', label: 'Progress (%)' },
-  ],
-  run: async (inputs) => {
-    const out = await twapStatusAlert(inputs)
-    return { ...out, progress: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'depositMonitor',
-  label: 'Deposit Monitor',
-  description: 'Trigger when a USDC deposit lands on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'wallet',
-  inputs: [
-    { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
-    { name: 'minAmount', label: 'Min Amount (USD)', type: 'number', placeholder: '0', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'amount', label: 'Amount (USDC)' },
-    { name: 'hash', label: 'Tx Hash' },
-    { name: 'timestamp', label: 'Time' },
-  ],
-  run: async (inputs) => {
-    const out = await depositMonitor(inputs)
-    return { ...out, timestamp: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'withdrawalMonitor',
-  label: 'Withdrawal Monitor',
-  description: 'Trigger on USDC withdrawals from Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'send',
-  inputs: [
-    { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
-    { name: 'minAmount', label: 'Min Amount (USD)', type: 'number', placeholder: '0', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'amount', label: 'Amount (USDC)' },
-    { name: 'fee', label: 'Fee' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await withdrawalMonitor(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'transferMonitor',
-  label: 'Transfer Monitor',
-  description: 'Trigger on internal transfers on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'arrowLeftRight',
-  inputs: [
-    { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
-    { name: 'transferType', label: 'Transfer Type', type: 'select', options: ['send', 'spotTransfer', 'subAccountTransfer', 'accountClassTransfer', 'all'], defaultValue: 'all' },
-  ],
-  outputs: [
-    { name: 'type', label: 'Transfer Type' },
-    { name: 'user', label: 'From User' },
-    { name: 'destination', label: 'Destination' },
-    { name: 'token', label: 'Token' },
-    { name: 'amount', label: 'Amount' },
-    { name: 'usdcValue', label: 'USDC Value' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await transferMonitor(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'vaultActivityMonitor',
-  label: 'Vault Activity Monitor',
-  description: 'Trigger on vault deposit/withdrawal on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'database',
-  inputs: [
-    { name: 'vault', label: 'Vault (optional)', type: 'address', allowVariable: true },
-    { name: 'operationType', label: 'Operation', type: 'select', options: ['vaultDeposit', 'vaultWithdraw', 'vaultCreate', 'all'], defaultValue: 'all' },
-  ],
-  outputs: [
-    { name: 'type', label: 'Operation Type' },
-    { name: 'vault', label: 'Vault Address' },
-    { name: 'user', label: 'User' },
-    { name: 'amount', label: 'Amount (USDC)' },
-    { name: 'commission', label: 'Commission' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await vaultActivityMonitor(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'fundingPayment',
-  label: 'Funding Payment',
-  description: 'Trigger on hourly funding on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'clock',
-  inputs: [
-    { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'data', label: 'Funding Data (JSON)' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await fundingPayment(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'crossChainMonitor',
-  label: 'Bridge Monitor',
-  description: 'Trigger on cross-chain deposit/withdrawal on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'globe',
-  inputs: [
-    { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
-    { name: 'direction', label: 'Direction', type: 'select', options: ['CDeposit', 'CWithdrawal', 'both'], defaultValue: 'both' },
-  ],
-  outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'amount', label: 'Amount' },
-    { name: 'direction', label: 'Direction' },
-    { name: 'isFinalized', label: 'Finalized' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await crossChainMonitor(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
-  type: 'delegationMonitor',
-  label: 'Delegation Monitor',
-  description: 'Trigger on staking delegation/undelegation on Hyperliquid. Use useHyperstreamSockets for real-time.',
-  category: 'trigger',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'shield',
-  inputs: [
-    { name: 'user', label: 'User (optional)', type: 'address', allowVariable: true },
-    { name: 'validator', label: 'Validator (optional)', type: 'address', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'validator', label: 'Validator' },
-    { name: 'amount', label: 'Amount' },
-    { name: 'isUndelegate', label: 'Is Undelegation' },
-    { name: 'hash', label: 'Tx Hash' },
-  ],
-  run: async (inputs) => {
-    const out = await delegationMonitor(inputs)
-    return { ...out, hash: STREAMING_TRIGGER_MSG }
-  },
-})
-
-registerBlock({
   type: 'recentEvents',
   label: 'Recent Events',
   description: 'Fetch recent events from Hyperliquid. Filter by type for mid-flow checks.',
@@ -477,7 +89,13 @@ registerBlock({
   color: 'emerald',
   icon: 'filter',
   inputs: [
-    { name: 'eventType', label: 'Event Type', type: 'select', options: ['deposit', 'withdraw', 'send', 'spotTransfer', 'vaultDeposit', 'vaultWithdraw', 'funding', 'all'], defaultValue: 'all' },
+    {
+      name: 'eventType',
+      label: 'Event Type',
+      type: 'select',
+      options: ['deposit', 'withdraw', 'send', 'spotTransfer', 'vaultDeposit', 'vaultWithdraw', 'funding', 'all'],
+      defaultValue: 'all',
+    },
     { name: 'count', label: 'Block Count', type: 'number', placeholder: '10', defaultValue: '10', min: 1, max: 200 },
   ],
   outputs: [
@@ -488,30 +106,107 @@ registerBlock({
   run: async (inputs) => recentEvents(inputs),
 })
 
+// ─── Unified Hyperliquid Stream Block ───────────────────
+
 registerBlock({
-  type: 'systemTransferMonitor',
-  label: 'System Transfer Monitor',
-  description: 'Trigger on system spot token transfers / bridge on Hyperliquid. Use useHyperstreamSockets for real-time.',
+  type: 'hyperliquidStream',
+  label: 'Hyperliquid Stream',
+  description: 'Unified streaming block for all Hyperliquid stream types. Select stream type and configure filters.',
   category: 'trigger',
   service: 'hyperliquid',
   color: 'emerald',
-  icon: 'globe',
+  icon: 'activity',
   inputs: [
-    { name: 'user', label: 'System User (optional)', type: 'address', allowVariable: true },
-    { name: 'tokenId', label: 'Token ID (optional)', type: 'number', placeholder: '299' },
+    {
+      name: 'streamType',
+      label: 'Stream Type',
+      type: 'select',
+      options: ['trades', 'orders', 'book_updates', 'twap', 'events', 'writer_actions'],
+      defaultValue: 'trades',
+    },
+    {
+      name: 'coin',
+      label: 'Coin (optional)',
+      type: 'tokenSelect',
+      tokens: ['BTC', 'ETH', 'SOL', 'HYPE', 'ARB', 'OP', 'DOGE', 'AVAX', 'LINK', 'MATIC'],
+      allowVariable: true,
+    },
+    {
+      name: 'user',
+      label: 'User Address (optional)',
+      type: 'address',
+      placeholder: '0x...',
+      allowVariable: true,
+    },
+    {
+      name: 'side',
+      label: 'Side (optional)',
+      type: 'select',
+      options: ['B', 'A', 'Both'],
+      defaultValue: 'Both',
+    },
   ],
   outputs: [
-    { name: 'user', label: 'User' },
-    { name: 'destination', label: 'Destination' },
-    { name: 'tokenId', label: 'Token ID' },
-    { name: 'amount', label: 'Amount (wei)' },
-    { name: 'actionType', label: 'Action Type' },
-    { name: 'evmTxHash', label: 'EVM Tx Hash' },
-    { name: 'nonce', label: 'Nonce' },
+    { name: 'streamType', label: 'Stream Type', type: 'string' },
+    { name: 'data', label: 'Event Data (JSON)', type: 'json' },
+    { name: 'user', label: 'User Address', type: 'address' },
+    { name: 'coin', label: 'Coin', type: 'string' },
+    { name: 'hash', label: 'Tx Hash', type: 'string' },
+    { name: 'timestamp', label: 'Timestamp', type: 'string' },
+    { name: 'price', label: 'Price', type: 'number' },
+    { name: 'size', label: 'Size', type: 'number' },
+    { name: 'amount', label: 'Amount', type: 'number' },
+    { name: 'status', label: 'Status', type: 'string' },
+    { name: 'side', label: 'Side', type: 'string' },
   ],
   run: async (inputs) => {
-    const out = await systemTransferMonitor(inputs)
-    return { ...out, nonce: STREAMING_TRIGGER_MSG }
+    // Placeholder outputs for manual run
+    return {
+      streamType: inputs.streamType || 'trades',
+      data: '{}',
+      user: '',
+      coin: '',
+      hash: '',
+      timestamp: '',
+      price: '0',
+      size: '0',
+      amount: '0',
+      status: '',
+      side: '',
+    }
+  },
+  subscribe: (inputs, onTrigger) => {
+    const streamType = (inputs.streamType || 'trades') as HyperliquidStreamType
+    const filters: HyperliquidFilters = {}
+
+    // Build filters based on stream type and provided inputs
+    if (inputs.coin && inputs.coin.trim()) {
+      filters.coin = [inputs.coin.trim()]
+    }
+    if (inputs.user && inputs.user.trim()) {
+      filters.user = [inputs.user.trim()]
+    }
+    if (inputs.side && inputs.side !== 'Both') {
+      filters.side = [inputs.side]
+    }
+
+    // Subscribe to the stream
+    const unsubscribe = subscribe(streamType, filters, (msg: HyperliquidStreamMessage) => {
+      const events = msg.data?.events ?? (msg as any).events
+      if (!Array.isArray(events) || events.length === 0) return
+
+      // Process each event
+      for (const ev of events) {
+        try {
+          const outputs = normalizeStreamEventToUnifiedOutputs(streamType, ev, msg)
+          onTrigger(outputs)
+        } catch (e) {
+          console.warn('[hyperliquidStream] normalize error', e)
+        }
+      }
+    })
+
+    return unsubscribe
   },
 })
 
