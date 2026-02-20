@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Activity, CheckCircle, Redo2, Rocket, Trash2, Undo2 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { Edge, Node } from '@xyflow/react'
 import { buildConnectedModel } from '../../utils/buildConnectedModel'
 import { useToast } from './Toast'
@@ -35,7 +35,7 @@ export default function Topbar({
   const walletAddress = useWalletAddress()
   const { addAgent, updateAgentModel, getAgentById } = useAgents(walletAddress)
   const [showDeployModal, setShowDeployModal] = useState(false)
-
+  const navigate = useNavigate()
   const defaultDeployName = `Agent ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 
   const doDeploy = (name?: string) => {
@@ -71,6 +71,7 @@ export default function Topbar({
       toast('Agent deployed', 'success')
       setShowDeployModal(false)
     }
+    navigate(`/`)
   }
 
   const handleDeploy = () => {

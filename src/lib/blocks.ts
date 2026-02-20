@@ -783,3 +783,24 @@ registerBlock({
   },
 })
 
+
+registerBlock({
+  type: 'timeLoop',
+  label: 'Time Loop',
+  description: 'Trigger every x seconds',
+  category: 'trigger',
+  color: 'amber',
+  icon: 'clock',
+  inputs: [
+    { name: 'seconds', label: 'Seconds', type: 'slider', min: 1, max: 300, step: 1, defaultValue: '10' },
+  ],
+  outputs: [
+    { name: 'elapsed', label: 'Time Elapsed' },
+  ],
+  run: async (inputs) => {
+    const ms = parseFloat(inputs.seconds) * 1000
+    await new Promise((r) => setTimeout(r, ms))
+    return { elapsed: `${inputs.seconds}s` }
+  },
+})
+

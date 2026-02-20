@@ -1,4 +1,4 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
 import { useState, useCallback } from 'react'
 import {
   getBlock,
@@ -8,9 +8,10 @@ import {
 import BlockInput from './BlockInputs'
 import NodeShell from '../ui/NodeShell'
 
-export default function GenericNode({ data, selected }: NodeProps) {
+export default function GenericNode({ id, data, selected }: NodeProps) {
   const blockType = data.blockType as string
   const definition = getBlock(blockType)
+  const { setNodes } = useReactFlow()
 
   if (!definition) {
     return (
@@ -29,9 +30,19 @@ export default function GenericNode({ data, selected }: NodeProps) {
     return initial
   })
 
-  const updateInput = useCallback((name: string, value: string) => {
-    setInputs((prev) => ({ ...prev, [name]: value }))
-  }, [])
+  const updateInput = useCallback(
+    (name: string, value: string) => {
+      setInputs((prev) => ({ ...prev, [name]: value }))
+      setNodes((nodes) =>
+        nodes.map((n) =>
+          n.id === id
+            ? { ...n, data: { ...n.data, [name]: value } }
+            : n,
+        ),
+      )
+    },
+    [id, setNodes],
+  )
 
   const Icon = getBlockIcon(definition.icon)
 
