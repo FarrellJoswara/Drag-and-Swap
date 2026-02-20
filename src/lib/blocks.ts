@@ -23,7 +23,6 @@
  */
 
 import { registerBlock } from './blockRegistry'
-import { watchWallet, ethBalance, txHistory, gasGuard } from '../services/quicknode'
 import {
   tradeAlert,
   liquidationWatcher,
@@ -45,7 +44,7 @@ import {
   systemTransferMonitor,
 } from '../services/hyperliquid'
 import { swapQuote, executeSwap, tokenPrice, priceAlert } from '../services/uniswap'
-import { dataStore } from '../services/supabase'
+import { dataStore } from '../utils/supabase'
 import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
 /** Placeholder run for streaming triggers — use useHyperstreamSockets when running the flow. */

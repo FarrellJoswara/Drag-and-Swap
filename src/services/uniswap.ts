@@ -1,69 +1,189 @@
 /**
- * Uniswap service — placeholder implementations.
- *
- * When you're ready to go live, install ethers / viem and
- * replace the stubs with real Uniswap SDK calls.
+ * Uniswap service — block-facing functions only.
+ * All SDK/contract logic lives in utils/uniswap.ts.
  */
 
-const TOKEN_ADDRESSES: Record<string, string> = {
-  ETH:  '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-  USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-  USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-  WBTC: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
-  DAI:  '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+import {
+  getTokenAddress,
+  getTokenDecimals,
+  getPoolId,
+  quoteExactInputSingle,
+  getSlot0,
+  sqrtPriceX96ToPrice,
+  buildSwapCalldata,
+  type PoolKey,
+  type PathKey,
+} from '../utils/uniswap'
+
+const EMPTY_HOOKS = '0x0000000000000000000000000000000000000000'
+const DEFAULT_FEE = 500
+const DEFAULT_TICK_SPACING = 10
+
+function parseNum(s: string | undefined, fallback: number): number {
+  const n = s != null ? parseFloat(s) : NaN
+  return Number.isFinite(n) ? n : fallback
 }
 
-export function getTokenAddress(symbol: string): string {
-  return TOKEN_ADDRESSES[symbol.toUpperCase()] ?? ''
-}
-
-export async function getSwapQuote(
-  fromToken: string,
-  toToken: string,
-  amount: string,
+export async function swapQuote(
+  inputs: Record<string, string>
 ): Promise<{ expectedOutput: string; priceImpact: string; route: string }> {
-  // TODO: replace with real Uniswap V3 Quoter call
-  const _from = getTokenAddress(fromToken)
-  const _to = getTokenAddress(toToken)
-  if (!_from || !_to) throw new Error(`Unknown token: ${!_from ? fromToken : toToken}`)
+  const fromToken = (inputs.fromToken ?? 'ETH').trim()
+  const toToken = (inputs.toToken ?? 'USDC').trim()
+  const amount = String(inputs.amount ?? '1').trim()
+
+  const fromAddr = getTokenAddress(fromToken)
+  const toAddr = getTokenAddress(toToken)
+  if (!fromAddr || !toAddr) {
+    throw new Error(`Unknown token: ${!fromAddr ? fromToken : toToken}`)
+  }
+
+  const amountInWei = BigInt(
+    Math.floor(parseFloat(amount) * 10 ** getTokenDecimals(fromToken))
+  ).toString()
+
+  const [c0, c1] = fromAddr < toAddr ? [fromAddr, toAddr] : [toAddr, fromAddr]
+  const zeroForOne = fromAddr === c0
+
+  const poolKey: PoolKey = {
+    currency0: c0,
+    currency1: c1,
+    fee: DEFAULT_FEE,
+    tickSpacing: DEFAULT_TICK_SPACING,
+    hooks: EMPTY_HOOKS,
+  }
+
+  const amountOut = await quoteExactInputSingle({
+    poolKey,
+    zeroForOne,
+    amountIn: amountInWei,
+    hookData: '0x00',
+  })
+
+  const toDecimals = getTokenDecimals(toToken)
+  const expectedOutput = (Number(amountOut) / 10 ** toDecimals).toFixed(6)
+  const route = `${fromToken} → ${toToken}`
 
   return {
-    expectedOutput: `${(parseFloat(amount) * 1800).toFixed(2)}`,
+    expectedOutput,
     priceImpact: '0.03%',
-    route: `${fromToken} → ${toToken}`,
+    route,
   }
 }
 
-export async function getTokenPrice(
-  token: string,
+export async function executeSwap(
+  inputs: Record<string, string>
+): Promise<{ txHash: string; amountOut: string; gasUsed: string }> {
+  const fromToken = (inputs.fromToken ?? 'ETH').trim()
+  const toToken = (inputs.toToken ?? 'USDC').trim()
+  const amount = String(inputs.amount ?? '1').trim()
+  const slippagePct = parseNum(inputs.slippage, 0.5)
+
+  const fromAddr = getTokenAddress(fromToken)
+  const toAddr = getTokenAddress(toToken)
+  if (!fromAddr || !toAddr) {
+    throw new Error(`Unknown token: ${!fromAddr ? fromToken : toToken}`)
+  }
+
+  const amountInWei = BigInt(
+    Math.floor(parseFloat(amount) * 10 ** getTokenDecimals(fromToken))
+  ).toString()
+
+  const path: PathKey[] = [
+    {
+      currency0: fromAddr < toAddr ? fromAddr : toAddr,
+      currency1: fromAddr < toAddr ? toAddr : fromAddr,
+      fee: DEFAULT_FEE,
+      tickSpacing: DEFAULT_TICK_SPACING,
+      hooks: EMPTY_HOOKS,
+    },
+  ]
+
+  const amountOutWei = await quoteExactInputSingle({
+    poolKey: {
+      currency0: path[0].currency0,
+      currency1: path[0].currency1,
+      fee: path[0].fee,
+      tickSpacing: path[0].tickSpacing,
+      hooks: path[0].hooks,
+    },
+    zeroForOne: fromAddr === path[0].currency0,
+    amountIn: amountInWei,
+    hookData: '0x00',
+  })
+
+  const slippageBips = Math.round(slippagePct * 100)
+  const amountOutMin = (amountOutWei * BigInt(10000 - slippageBips)) / 10000n
+  const deadline = Math.floor(Date.now() / 1000) + 60 * 20
+  const recipient = '0x0000000000000000000000000000000000000000'
+
+  const { calldata } = await buildSwapCalldata({
+    path,
+    amountIn: amountInWei,
+    amountOutMin: amountOutMin.toString(),
+    recipient,
+    deadline,
+    slippageBips,
+  })
+
+  const toDecimals = getTokenDecimals(toToken)
+  const amountOut = (Number(amountOutWei) / 10 ** toDecimals).toFixed(6)
+
+  // TODO: To execute for real: get wallet (e.g. from Privy), send tx to Universal Router
+  // with data=calldata and value from buildSwapCalldata. Use chain-specific Universal Router
+  // address from https://docs.uniswap.org/contracts/v4/deployments
+  void calldata
+  return {
+    txHash: '0x',
+    amountOut: `${amountOut} ${toToken}`,
+    gasUsed: '0',
+  }
+}
+
+export async function tokenPrice(
+  inputs: Record<string, string>
 ): Promise<{ price: string; change24h: string }> {
-  // TODO: replace with CoinGecko / on-chain TWAP
-  void getTokenAddress(token)
+  const token = (inputs.token ?? 'ETH').trim()
+  const tokenAddr = getTokenAddress(token)
+  if (!tokenAddr) throw new Error(`Unknown token: ${token}`)
+
+  const usdcAddr = getTokenAddress('USDC')
+  const [c0, c1] =
+    tokenAddr < usdcAddr ? [tokenAddr, usdcAddr] : [usdcAddr, tokenAddr]
+  const zeroForOne = tokenAddr === c0
+
+  const poolId = getPoolId(c0, c1, DEFAULT_FEE, DEFAULT_TICK_SPACING)
+  const { sqrtPriceX96 } = await getSlot0(poolId)
+
+  const dec0 =
+    tokenAddr === c0 ? getTokenDecimals(token) : getTokenDecimals('USDC')
+  const dec1 =
+    tokenAddr === c1 ? getTokenDecimals(token) : getTokenDecimals('USDC')
+  const priceStr = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1, zeroForOne)
 
   return {
-    price: '1800.00',
-    change24h: '+2.4%',
+    price: priceStr,
+    change24h: '0%',
   }
 }
 
-// ─── Block-specific functions (stub: console.log + return outputs) ───
+export async function priceAlert(
+  inputs: Record<string, string>
+): Promise<{ currentPrice: string; triggered: string }> {
+  const token = (inputs.token ?? 'ETH').trim()
+  const condition = (inputs.condition ?? 'above').trim()
+  const threshold = parseNum(inputs.price, 0)
 
-export async function swapQuote(_inputs: Record<string, string>): Promise<{ expectedOutput: string; priceImpact: string; route: string }> {
-  console.log('swapQuote')
-  return { expectedOutput: '', priceImpact: '', route: '' }
-}
+  const { price } = await tokenPrice({ token })
+  const currentPrice = price
+  const current = parseFloat(price)
+  let triggered = 'false'
 
-export async function executeSwap(_inputs: Record<string, string>): Promise<{ txHash: string; amountOut: string; gasUsed: string }> {
-  console.log('executeSwap')
-  return { txHash: '', amountOut: '', gasUsed: '' }
-}
+  if (condition === 'above' && current >= threshold) triggered = 'true'
+  if (condition === 'below' && current <= threshold) triggered = 'true'
+  if (condition === 'crosses') triggered = current >= threshold ? 'true' : 'false'
 
-export async function tokenPrice(_inputs: Record<string, string>): Promise<{ price: string; change24h: string }> {
-  console.log('tokenPrice')
-  return { price: '', change24h: '' }
-}
-
-export async function priceAlert(_inputs: Record<string, string>): Promise<{ currentPrice: string; triggered: string }> {
-  console.log('priceAlert')
-  return { currentPrice: '', triggered: '' }
+  return {
+    currentPrice,
+    triggered,
+  }
 }

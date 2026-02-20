@@ -7,7 +7,7 @@ import ErrorBoundary from './components/ui/ErrorBoundary.tsx'
 import { ToastProvider } from './components/ui/Toast.tsx'
 import { VariableProvider } from './lib/VariableContext.tsx'
 import { AgentsProvider } from './contexts/AgentsContext.tsx'
-import { PRIVY_APP_ID, privyConfig } from './services/privy.ts'
+import { PRIVY_APP_ID, privyConfig } from './utils/privy.ts'
 
 function AuthProvider({ children }: { children: ReactNode }) {
   if (!PRIVY_APP_ID) return <>{children}</>
