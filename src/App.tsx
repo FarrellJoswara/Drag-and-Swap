@@ -32,6 +32,7 @@ import { getBlock, getOutputsForBlock, minimapColor } from './lib/blockRegistry'
 import { EXEC_IN_HANDLE, EXEC_OUT_HANDLE } from './utils/executionHandles'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
+import RunProgressPanel from './components/ui/RunProgressPanel'
 import { isValidConnection } from './utils/connectionValidation'
 import './lib/blocks'
 
@@ -831,6 +832,8 @@ export default function App() {
                 onDelete={handleDeleteNode}
               />
             )}
+
+            <RunProgressPanel />
           </div>
         </div>
       </div>

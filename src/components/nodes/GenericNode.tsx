@@ -21,6 +21,7 @@ import { useSignTypedData } from '../../hooks/useSignTypedData'
 import { useAgentId } from '../../contexts/AgentIdContext'
 import { useDisplayValue } from '../../contexts/DisplayValueContext'
 import { useGraphSeries, MULTIGRAPH_MAX_SERIES } from '../../contexts/GraphSeriesContext'
+import { useRunProgress } from '../../contexts/RunProgressContext'
 import {
   LineChart,
   Line,
@@ -42,6 +43,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const agentId = useAgentId()
   const { getDisplayValue, setDisplayValue, clearDisplayValue } = useDisplayValue()
   const { getSeries, getMultigraphSeries, appendPoint, clearSeries, setPaused, getPaused } = useGraphSeries()
+  const { startRun, endRun, onBlockStart, onBlockComplete, currentBlockNodeId } = useRunProgress()
 
   if (!definition) {
     return (
@@ -322,6 +324,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       onMultigraphPointUpdate: (aid: string, nodeId: string, seriesIndex: number, point: { timestamp: number; value: number }) => {
         if (!getPaused(aid, nodeId)) appendPoint(aid, nodeId, point, seriesIndex)
       },
+      onBlockStart,
+      onBlockComplete,
     }
     const context = {
       walletAddress: walletAddress ?? undefined,
@@ -330,6 +334,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       agentId: displayAgentId,
     }
     setRunLoading(true)
+    startRun(id)
     try {
       await runFromNode(model, id, context, runOptions)
       toast('Block ran successfully', 'success')
@@ -338,8 +343,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       toast(err instanceof Error ? err.message : 'Run failed', 'error')
     } finally {
       setRunLoading(false)
+      endRun()
     }
-  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, agentId, setDisplayValue, getPaused, appendPoint])
+  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, agentId, setDisplayValue, getPaused, appendPoint, startRun, endRun, onBlockStart, onBlockComplete])
 
   const runDisabled = (blockType === 'swap' || blockType === 'getQuote') && !walletAddress
   const runButton =
@@ -409,6 +415,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   : undefined
           }
           headerAction={runButton}
+          isRunning={id === currentBlockNodeId}
         >
           <div className="max-h-[320px] overflow-y-auto overflow-x-hidden flex flex-col gap-2 overscroll-contain">
             {isSwapOrQuote && !walletAddress && (
@@ -487,6 +494,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   : undefined
           }
           headerAction={blockType === 'manualTrigger' ? undefined : runButton}
+          isRunning={id === currentBlockNodeId}
     >
       <div className="flex flex-col gap-2">
           {connectedSourceLabels.length > 0 && blockType !== 'manualTrigger' && (
@@ -498,10 +506,20 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
             <button
               type="button"
               onClick={handleRunBlock}
-              className="nodrag w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-amber-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors"
+              disabled={runLoading}
+              className="nodrag w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-amber-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <Play size={12} fill="currentColor" />
-              Run Once
+              {runLoading ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Running…
+                </>
+              ) : (
+                <>
+                  <Play size={12} fill="currentColor" />
+                  Run Once
+                </>
+              )}
             </button>
           ) : (
             definition.inputs.filter((f) => !hiddenInputNames.has(f.name) && isVisible(f.name)).map((field) => {
