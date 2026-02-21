@@ -107,6 +107,8 @@ export interface BlockDefinition {
   getOutputs?: (inputs: Record<string, string>) => OutputField[]
   /** When set, block uses side-panel layout: inputs in mainInputNames go in main card, rest in side panel */
   sidePanel?: { label: string; mainInputNames: string[] }
+  /** When set, only returned input names are shown (e.g. stream-type–relevant filters). */
+  getVisibleInputs?: (inputs: Record<string, string>) => string[]
   run: (inputs: Record<string, string>, context?: import('./runAgent').RunContext) => Promise<Record<string, string>>
   /** Interrupt-based: subscribe to events, call onTrigger when they occur. Returns cleanup. */
   subscribe?: (inputs: Record<string, string>, onTrigger: TriggerCallback) => Unsubscribe

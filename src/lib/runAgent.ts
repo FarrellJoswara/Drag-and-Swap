@@ -121,40 +121,29 @@ export async function runDownstreamGraph(
 
       const conn = node.inputs.find((c) => c.targetHandle === field.name)
       if (conn) {
-        const sourceNode = model.nodes.find((n) => n.id === conn.sourceNodeId)
-        const sourceBlockType = sourceNode?.data?.blockType as string | undefined
-        const sourceDef = sourceBlockType ? getBlock(sourceBlockType) : null
-        const sourceIsTrigger = sourceDef?.category === 'trigger'
-
-        // Trigger connections are for execution order only — don't pass trigger output to data inputs
-        // (except streamDisplay's data input, which receives upstream block output)
-        if (sourceIsTrigger && !(def.type === 'streamDisplay' && field.name === 'data')) {
-          // Keep stored/default value; trigger only signals "run next"
-        } else {
-          const srcOuts = outputs.get(conn.sourceNodeId)
-          if (srcOuts) {
-            // Stream Display "data" input: pass full normalized outputs (same keys as "Fields to Show") so selected fields match and display correctly
-            const useNormalizedForDisplay =
-              def.type === 'streamDisplay' &&
-              field.name === 'data' &&
-              srcOuts != null &&
-              typeof srcOuts === 'object'
-            const outName = useNormalizedForDisplay
-              ? 'data'
-              : (conn.sourceHandle ?? Object.keys(srcOuts)[0])
-            const connectedVal = useNormalizedForDisplay
-              ? JSON.stringify(srcOuts)
-              : (srcOuts[outName] ?? val)
-            if (storedVal.trim() !== '') {
-              val = storedVal
+        const srcOuts = outputs.get(conn.sourceNodeId)
+        if (srcOuts) {
+          // Stream Display "data" input: pass full normalized outputs (same keys as "Fields to Show") so selected fields match and display correctly
+          const useNormalizedForDisplay =
+            def.type === 'streamDisplay' &&
+            field.name === 'data' &&
+            srcOuts != null &&
+            typeof srcOuts === 'object'
+          const outName = useNormalizedForDisplay
+            ? 'data'
+            : (conn.sourceHandle ?? Object.keys(srcOuts)[0])
+          const connectedVal = useNormalizedForDisplay
+            ? JSON.stringify(srcOuts)
+            : (srcOuts[outName] ?? val)
+          if (storedVal.trim() !== '') {
+            val = storedVal
+          } else {
+            if (field.type === 'number' && connectedVal) {
+              const n = Number(connectedVal)
+              if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
+              else val = connectedVal
             } else {
-              if (field.type === 'number' && connectedVal) {
-                const n = Number(connectedVal)
-                if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
-                else val = connectedVal
-              } else {
-                val = connectedVal
-              }
+              val = connectedVal
             }
           }
         }
@@ -216,8 +205,9 @@ export function subscribeToAgent(
   const runOptions: RunOptions = { agentId }
   if (subscribeOptions?.onDisplayUpdate) runOptions.onDisplayUpdate = subscribeOptions.onDisplayUpdate
   const getModel = subscribeOptions?.getModel
+  const modelForInputs = getModel ? (getModel(agentId) ?? model) : model
 
-  for (const node of model.nodes) {
+  for (const node of modelForInputs.nodes) {
     const blockType = (node.data?.blockType as string) ?? (node.type as string)
     const def = getBlock(blockType)
     if (!def?.subscribe || def.category !== 'trigger') continue

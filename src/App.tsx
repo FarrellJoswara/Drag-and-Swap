@@ -32,10 +32,6 @@ import GenericNode from './components/nodes/GenericNode'
 import { isValidConnection } from './utils/connectionValidation'
 import './lib/blocks'
 
-const nodeTypes: NodeTypes = {
-  generic: GenericNode,
-}
-
 const emptyNodes: Node[] = []
 const emptyEdges: Edge[] = []
 
@@ -275,6 +271,9 @@ export default function App() {
   const prevUnsavedRef = useRef(false)
   /** True after we've loaded this agent's flow (or cleared for /new). Avoids auto-off on first paint before load. */
   const hasLoadedForAgentRef = useRef(false)
+
+  /** Stable reference so React Flow does not warn (error #002) about new nodeTypes each render. */
+  const nodeTypes = useMemo<NodeTypes>(() => ({ generic: GenericNode }), [])
 
   /** Dedupe by id so React Flow never sees duplicate keys (e.g. from undo or stale state). */
   const nodesDeduped = useMemo(() => dedupeNodesById(nodes), [nodes])

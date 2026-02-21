@@ -78,12 +78,12 @@ export function isValidConnection(
 
   // If source has no type but target has accepts, allow (backward compatibility)
   if (!sourceOutput.type && targetInput.accepts) {
-    return { valid: true, reason: 'Source output has no type information' }
+    return { valid: true }
   }
 
   // If source has type but target has no accepts, allow (backward compatibility)
   if (sourceOutput.type && !targetInput.accepts) {
-    return { valid: true, reason: 'Target input has no type restrictions' }
+    return { valid: true }
   }
 
   // Both have type information - validate

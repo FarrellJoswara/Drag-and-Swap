@@ -1,5 +1,6 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { subscribeToAgent, type TriggerPayload, type RunContext } from '../lib/runAgent'
+import { getBlock } from '../lib/blockRegistry'
 import type { DeployedAgent } from '../types/agent'
 import { useDisplayValue } from '../contexts/DisplayValueContext'
 import { useCurrentFlow } from '../contexts/CurrentFlowContext'
@@ -31,8 +32,27 @@ export function useActiveAgentRunners(
     [getCurrentFlow],
   )
 
+  const active = useMemo(() => agents.filter((a) => a.isActive), [agents])
+  // Recompute every render so when user changes a filter (flow updates), we re-subscribe with new inputs
+  const triggerInputsSignature =
+    active
+      .map((a) => {
+        const flow = getCurrentFlow(a.id)
+        const nodes = flow?.nodes ?? a.model.nodes
+        if (!nodes?.length) return `${a.id}:empty`
+        const triggerData = nodes
+          .filter((n) => {
+            const def = getBlock((n.data?.blockType ?? n.type) as string)
+            return def?.subscribe && def.category === 'trigger'
+          })
+          .map((n) => JSON.stringify(n.data ?? {}))
+          .sort()
+          .join('|')
+        return `${a.id}:${triggerData}`
+      })
+      .join(';')
+
   useEffect(() => {
-    const active = agents.filter((a) => a.isActive)
     const cleanups: Array<() => void> = []
 
     for (const agent of active) {
@@ -52,5 +72,5 @@ export function useActiveAgentRunners(
     return () => {
       for (const cleanup of cleanups) cleanup()
     }
-  }, [agents, setDisplayValue, getModel])
+  }, [active, triggerInputsSignature, setDisplayValue, getModel])
 }

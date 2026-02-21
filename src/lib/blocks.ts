@@ -30,25 +30,69 @@ import {
   parseCommaSeparated,
 } from '../services/hyperliquid/filters'
 import { FILTER_LIMITS, type HyperliquidStreamType, type HyperliquidStreamMessage } from '../services/hyperliquid/types'
+import type { HyperliquidFilters } from '../services/hyperliquid/types'
 import {
   subscribe,
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
+
+/** Skip sending variable placeholders (e.g. {{nodeId.out}}) to the API. */
+function isVariablePlaceholder(s: string): boolean {
+  return /^\s*\{\{[^}]*\}\}\s*$/.test(String(s).trim())
+}
+
+/** Client-side: return true if this event's outputs match the requested filters (so we only trigger when relevant). */
+function eventMatchesFilters(
+  streamType: HyperliquidStreamType,
+  filters: HyperliquidFilters,
+  outputs: Record<string, string>,
+): boolean {
+  if (Object.keys(filters).length === 0) return true
+  const coinMatch = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+  if (streamType === 'trades') {
+    const coin = (outputs.coin ?? '').trim()
+    const side = (outputs.side ?? '').trim()
+    const user = (outputs.user ?? '').trim()
+    if (filters.coin?.length && !filters.coin.some((c) => coinMatch(c, coin))) return false
+    if (filters.side?.length && !filters.side.some((s) => coinMatch(s, side))) return false
+    if (filters.user?.length && !filters.user.some((u) => u.toLowerCase() === user.toLowerCase())) return false
+    if (filters.liquidation?.includes('*') && !(outputs.liquidatedUser ?? '').trim()) return false
+    // twapId filter: we don't expose twapId in normalized trade outputs; rely on server filter
+  }
+  if (streamType === 'orders') {
+    if (filters.coin?.length && !filters.coin.some((c) => coinMatch(c, (outputs.coin ?? '').trim()))) return false
+    if (filters.side?.length && !filters.side.some((s) => coinMatch(s, (outputs.side ?? '').trim()))) return false
+    if (filters.user?.length && !filters.user.some((u) => u.toLowerCase() === (outputs.user ?? '').trim().toLowerCase())) return false
+  }
+  if (streamType === 'book_updates') {
+    if (filters.coin?.length && !filters.coin.some((c) => coinMatch(c, (outputs.coin ?? '').trim()))) return false
+    if (filters.side?.length && !filters.side.some((s) => coinMatch(s, (outputs.side ?? '').trim()))) return false
+  }
+  if (streamType === 'events') {
+    if (filters.users?.length && !filters.users.some((u) => u.toLowerCase() === (outputs.user ?? '').trim().toLowerCase())) return false
+    if (filters.type?.length && !filters.type.includes((outputs.status ?? '').trim())) return false
+  }
+  if (streamType === 'writer_actions') {
+    if (filters.user?.length && !filters.user.some((u) => u.toLowerCase() === (outputs.user ?? '').trim().toLowerCase())) return false
+    if (filters.type?.length && !filters.type.includes((outputs.status ?? (outputs as Record<string, string>).actionType ?? '').trim())) return false
+  }
+  return true
+}
 import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
 import {
-  webhook,
+  // webhook,
   timeLoop,
   generalFilter,
   delay,
-  numericRangeFilter,
-  stringMatchFilter,
-  rateLimitFilter,
-  conditionalBranch,
-  mergeOutputs,
-  logDebug,
+  // numericRangeFilter,
+  // stringMatchFilter,
+  // rateLimitFilter,
+  // conditionalBranch,
+  // mergeOutputs,
+  // logDebug,
 } from '../services/general'
-import { sendTelegram, sendDiscord } from '../services/notifications'
-import { subscribeToTransfer } from '../services/walletEvent'
+// import { sendTelegram, sendDiscord } from '../services/notifications'
+// import { subscribeToTransfer } from '../services/walletEvent'
 
 // ─── Unified Hyperliquid Stream Block ───────────────────
 
@@ -186,6 +230,25 @@ registerBlock({
     { name: 'side', label: 'Side', type: 'string' },
   ],
   getOutputs: (inputs) => getHyperliquidStreamOutputs(inputs.streamType ?? 'trades'),
+  getVisibleInputs: (inputs) => {
+    const streamType = (inputs.streamType ?? 'trades').trim()
+    const base = ['streamType', 'filtersEnabled', 'extraFilters', 'filterName']
+    switch (streamType) {
+      case 'trades':
+        return [...base, 'coin', 'user', 'side', 'filterPreset']
+      case 'orders':
+        return [...base, 'coin', 'user', 'side']
+      case 'book_updates':
+        return [...base, 'coin', 'side']
+      case 'events':
+        return [...base, 'user', 'eventType']
+      case 'writer_actions':
+        return [...base, 'user', 'eventType']
+      case 'twap':
+      default:
+        return base
+    }
+  },
   run: async (inputs) => {
     // Placeholder outputs for manual run
     return {
@@ -229,15 +292,15 @@ registerBlock({
 
     if (filtersEnabled) {
       const coinVal = (inputs.coin ?? '').trim()
-      const coinArr = coinVal ? [coinVal] : []
-      const userArr = parseCommaSeparated(inputs.user, FILTER_LIMITS.maxUserValues)
+      const coinArr = coinVal && !isVariablePlaceholder(coinVal) ? [coinVal] : []
+      const userArr = parseCommaSeparated(inputs.user, FILTER_LIMITS.maxUserValues).filter((u) => !isVariablePlaceholder(u))
       const eventTypeRaw = (inputs.eventType ?? 'All').trim()
       const eventTypeVal = eventTypeRaw === 'All' ? '' : eventTypeRaw
-      const typeArr = eventTypeVal ? [eventTypeVal] : []
+      const typeArr = eventTypeVal && !isVariablePlaceholder(eventTypeVal) ? [eventTypeVal] : []
       if (coinArr.length) spec.coin = coinArr
       if (userArr.length) spec.user = userArr
       if (typeArr.length) spec.type = typeArr
-      if (inputs.side && inputs.side !== 'Both') {
+      if (inputs.side && inputs.side !== 'Both' && !isVariablePlaceholder(inputs.side)) {
         if (streamType === 'trades' || streamType === 'orders' || streamType === 'book_updates') {
           spec.side = [inputs.side]
         } else {
@@ -257,9 +320,9 @@ registerBlock({
           if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
             for (const [k, v] of Object.entries(extra)) {
               if (Array.isArray(v)) {
-                const arr = v.map((x) => String(x).trim()).filter(Boolean)
+                const arr = v.map((x) => String(x).trim()).filter((x) => Boolean(x) && !isVariablePlaceholder(x))
                 if (arr.length) spec[k] = arr
-              } else if (v != null && v !== '') {
+              } else if (v != null && v !== '' && !isVariablePlaceholder(String(v))) {
                 spec[k] = [String(v).trim()]
               }
             }
@@ -289,10 +352,10 @@ registerBlock({
       const events = eventsFromData ?? legacyEvents ?? []
       if (!Array.isArray(events) || events.length === 0) return
 
-      // Process each event
       for (const ev of events) {
         try {
           const outputs = normalizeStreamEventToUnifiedOutputs(streamType, ev, msg)
+          if (!eventMatchesFilters(streamType, filters, outputs)) continue
           onTrigger(outputs)
         } catch (e) {
           console.warn('[hyperliquidStream] normalize error', e)
@@ -376,9 +439,7 @@ registerBlock({
     },
   ],
   outputs: [
-    { name: 'passed', label: 'Passed', type: 'string' },
-    { name: 'matchedValue', label: 'Matched Value', type: 'string' },
-    { name: 'data', label: 'Data (when passed)', type: 'string' },
+    { name: 'passed', label: 'Passed', type: 'boolean' },
   ],
   run: async (inputs) => generalFilter(inputs),
 })
@@ -438,11 +499,33 @@ registerBlock({
   getOutputs: getStreamDisplayOutputs,
   run: async (inputs): Promise<Record<string, string>> => {
     const raw = inputs.data ?? ''
+    let selectedFields: string[] | null = null
+    try {
+      const fieldsRaw = (inputs.fields ?? '').trim()
+      if (fieldsRaw) {
+        const arr = JSON.parse(fieldsRaw)
+        if (Array.isArray(arr) && arr.length > 0) {
+          selectedFields = arr.filter((x): x is string => typeof x === 'string')
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const filterKeys = (obj: Record<string, string>): Record<string, string> => {
+      if (selectedFields == null || selectedFields.length === 0) return obj
+      const result: Record<string, string> = {}
+      for (const k of selectedFields) {
+        if (k in obj) result[k] = obj[k]
+      }
+      return result
+    }
+
     if (typeof raw !== 'string') {
       const obj = raw as Record<string, unknown>
       const result: Record<string, string> = {}
       for (const k of Object.keys(obj)) result[k] = String(obj[k] ?? '')
-      return result
+      return filterKeys(result)
     }
     if (!raw.trim()) {
       return { lastEvent: '' }
@@ -454,7 +537,7 @@ registerBlock({
         for (const [k, v] of Object.entries(parsed)) {
           result[k] = v == null ? '' : String(v)
         }
-        return result
+        return filterKeys(result)
       }
     } catch {
       /* ignore */
@@ -527,26 +610,26 @@ registerBlock({
 
 // ─── Utility Blocks ──────────────────────────────────────
 
-registerBlock({
-  type: 'webhook',
-  label: 'Webhook',
-  description: 'Send data to an external URL',
-  category: 'action',
-  color: 'yellow',
-  icon: 'globe',
-  inputs: [
-    { name: 'url', label: 'Webhook URL', type: 'text', placeholder: 'https://...', allowVariable: true },
-    { name: 'method', label: 'Method', type: 'select', options: ['POST', 'GET', 'PUT', 'DELETE'], defaultValue: 'POST' },
-    { name: 'useCorsProxy', label: 'Use CORS proxy (for browser)', type: 'toggle', defaultValue: 'true' },
-    { name: 'headers', label: 'Headers', type: 'keyValue', defaultValue: '[]' },
-    { name: 'body', label: 'Request Body', type: 'textarea', placeholder: '{"key": "value"}', rows: 3, allowVariable: true },
-  ],
-  outputs: [
-    { name: 'status', label: 'Status Code' },
-    { name: 'response', label: 'Response Body' },
-  ],
-  run: async (inputs) => webhook(inputs),
-})
+// registerBlock({
+//   type: 'webhook',
+//   label: 'Webhook',
+//   description: 'Send data to an external URL',
+//   category: 'action',
+//   color: 'yellow',
+//   icon: 'globe',
+//   inputs: [
+//     { name: 'url', label: 'Webhook URL', type: 'text', placeholder: 'https://...', allowVariable: true },
+//     { name: 'method', label: 'Method', type: 'select', options: ['POST', 'GET', 'PUT', 'DELETE'], defaultValue: 'POST' },
+//     { name: 'useCorsProxy', label: 'Use CORS proxy (for browser)', type: 'toggle', defaultValue: 'true' },
+//     { name: 'headers', label: 'Headers', type: 'keyValue', defaultValue: '[]' },
+//     { name: 'body', label: 'Request Body', type: 'textarea', placeholder: '{"key": "value"}', rows: 3, allowVariable: true },
+//   ],
+//   outputs: [
+//     { name: 'status', label: 'Status Code' },
+//     { name: 'response', label: 'Response Body' },
+//   ],
+//   run: async (inputs) => webhook(inputs),
+// })
 
 registerBlock({
   type: 'timeLoop',
@@ -610,160 +693,153 @@ registerBlock({
 })
 
 // ─── Wallet / Contract Event Trigger ──────────────────────────────────────
-
-registerBlock({
-  type: 'walletEventTrigger',
-  label: 'Wallet Event',
-  description: 'Trigger on ERC20 Transfer events. Optionally filter by wallet (from or to).',
-  category: 'trigger',
-  color: 'violet',
-  icon: 'wallet',
-  inputs: [
-    { name: 'chainId', label: 'Chain ID', type: 'number', defaultValue: '1', placeholder: '1' },
-    { name: 'contractAddress', label: 'Contract Address', type: 'address', placeholder: '0x...' },
-    { name: 'filterWallet', label: 'Filter: wallet (from or to)', type: 'address', placeholder: 'Optional' },
-    { name: 'rpcUrl', label: 'RPC URL (optional)', type: 'text', placeholder: 'Leave empty for default' },
-  ],
-  outputs: [
-    { name: 'from', label: 'From', type: 'address' },
-    { name: 'to', label: 'To', type: 'address' },
-    { name: 'value', label: 'Value', type: 'string' },
-    { name: 'txHash', label: 'Tx Hash', type: 'string' },
-    { name: 'blockNumber', label: 'Block Number', type: 'string' },
-  ],
-  run: async () => ({}),
-  subscribe: (inputs, onTrigger) => subscribeToTransfer(inputs, onTrigger),
-})
+// registerBlock({
+//   type: 'walletEventTrigger',
+//   label: 'Wallet Event',
+//   description: 'Trigger on ERC20 Transfer events. Optionally filter by wallet (from or to).',
+//   category: 'trigger',
+//   color: 'violet',
+//   icon: 'wallet',
+//   inputs: [
+//     { name: 'chainId', label: 'Chain ID', type: 'number', defaultValue: '1', placeholder: '1' },
+//     { name: 'contractAddress', label: 'Contract Address', type: 'address', placeholder: '0x...' },
+//     { name: 'filterWallet', label: 'Filter: wallet (from or to)', type: 'address', placeholder: 'Optional' },
+//     { name: 'rpcUrl', label: 'RPC URL (optional)', type: 'text', placeholder: 'Leave empty for default' },
+//   ],
+//   outputs: [
+//     { name: 'from', label: 'From', type: 'address' },
+//     { name: 'to', label: 'To', type: 'address' },
+//     { name: 'value', label: 'Value', type: 'string' },
+//     { name: 'txHash', label: 'Tx Hash', type: 'string' },
+//     { name: 'blockNumber', label: 'Block Number', type: 'string' },
+//   ],
+//   run: async () => ({}),
+//   subscribe: (inputs, onTrigger) => subscribeToTransfer(inputs, onTrigger),
+// })
 
 // ─── Send Notification: Telegram ─────────────────────────────────────────
-
-registerBlock({
-  type: 'sendTelegram',
-  label: 'Send Telegram',
-  description: 'Send a message via Telegram Bot API. Create a bot with @BotFather and get chat ID from @userinfobot.',
-  category: 'action',
-  color: 'blue',
-  icon: 'messageSquare',
-  inputs: [
-    { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
-    { name: 'chatId', label: 'Chat ID', type: 'text', placeholder: 'e.g. -1001234567890' },
-    { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
-    { name: 'parseMode', label: 'Parse mode', type: 'select', options: ['HTML', 'Markdown', 'MarkdownV2'], defaultValue: 'HTML' },
-    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
-  ],
-  outputs: [
-    { name: 'ok', label: 'OK', type: 'boolean' },
-    { name: 'status', label: 'Status', type: 'string' },
-    { name: 'response', label: 'Response', type: 'json' },
-  ],
-  run: async (inputs) => sendTelegram(inputs),
-})
+// registerBlock({
+//   type: 'sendTelegram',
+//   label: 'Send Telegram',
+//   description: 'Send a message via Telegram Bot API. Create a bot with @BotFather and get chat ID from @userinfobot.',
+//   category: 'action',
+//   color: 'blue',
+//   icon: 'messageSquare',
+//   inputs: [
+//     { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
+//     { name: 'chatId', label: 'Chat ID', type: 'text', placeholder: 'e.g. -1001234567890' },
+//     { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
+//     { name: 'parseMode', label: 'Parse mode', type: 'select', options: ['HTML', 'Markdown', 'MarkdownV2'], defaultValue: 'HTML' },
+//     { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
+//   ],
+//   outputs: [
+//     { name: 'ok', label: 'OK', type: 'boolean' },
+//     { name: 'status', label: 'Status', type: 'string' },
+//     { name: 'response', label: 'Response', type: 'json' },
+//   ],
+//   run: async (inputs) => sendTelegram(inputs),
+// })
 
 // ─── Send Notification: Discord ───────────────────────────────────────────
-
-registerBlock({
-  type: 'sendDiscord',
-  label: 'Send Discord',
-  description: 'Send a message to a Discord channel via webhook URL.',
-  category: 'action',
-  color: 'violet',
-  icon: 'messageSquare',
-  inputs: [
-    { name: 'webhookUrl', label: 'Webhook URL', type: 'text', placeholder: 'https://discord.com/api/webhooks/...' },
-    { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
-    { name: 'username', label: 'Username (optional)', type: 'text', placeholder: 'Bot name' },
-    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
-  ],
-  outputs: [
-    { name: 'ok', label: 'OK', type: 'boolean' },
-    { name: 'status', label: 'Status', type: 'string' },
-    { name: 'response', label: 'Response', type: 'string' },
-  ],
-  run: async (inputs) => sendDiscord(inputs),
-})
+// registerBlock({
+//   type: 'sendDiscord',
+//   label: 'Send Discord',
+//   description: 'Send a message to a Discord channel via webhook URL.',
+//   category: 'action',
+//   color: 'violet',
+//   icon: 'messageSquare',
+//   inputs: [
+//     { name: 'webhookUrl', label: 'Webhook URL', type: 'text', placeholder: 'https://discord.com/api/webhooks/...' },
+//     { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
+//     { name: 'username', label: 'Username (optional)', type: 'text', placeholder: 'Bot name' },
+//     { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
+//   ],
+//   outputs: [
+//     { name: 'ok', label: 'OK', type: 'boolean' },
+//     { name: 'status', label: 'Status', type: 'string' },
+//     { name: 'response', label: 'Response', type: 'string' },
+//   ],
+//   run: async (inputs) => sendDiscord(inputs),
+// })
 
 // ─── Log / Debug ──────────────────────────────────────────────────────────
-
-registerBlock({
-  type: 'logDebug',
-  label: 'Log / Debug',
-  description: 'Log inputs to the browser console and pass through. Useful for debugging flows.',
-  category: 'action',
-  color: 'amber',
-  icon: 'bug',
-  inputs: [
-    { name: 'passthrough', label: 'Pass through value', type: 'text', placeholder: 'Optional', allowVariable: true },
-  ],
-  outputs: [
-    { name: 'out', label: 'Out', type: 'string' },
-  ],
-  run: async (inputs) => logDebug(inputs),
-})
+// registerBlock({
+//   type: 'logDebug',
+//   label: 'Log / Debug',
+//   description: 'Log inputs to the browser console and pass through. Useful for debugging flows.',
+//   category: 'action',
+//   color: 'amber',
+//   icon: 'bug',
+//   inputs: [
+//     { name: 'passthrough', label: 'Pass through value', type: 'text', placeholder: 'Optional', allowVariable: true },
+//   ],
+//   outputs: [
+//     { name: 'out', label: 'Out', type: 'string' },
+//   ],
+//   run: async (inputs) => logDebug(inputs),
+// })
 
 // ─── Numeric range filter ─────────────────────────────────────────────────
-
-registerBlock({
-  type: 'numericRangeFilter',
-  label: 'Numeric Range',
-  description: 'Pass only when the connected value is within min and max (inclusive).',
-  category: 'filter',
-  color: 'yellow',
-  icon: 'filter',
-  inputs: [
-    { name: 'value', label: 'Value', type: 'number', allowVariable: true, accepts: ['number', 'string'] },
-    { name: 'min', label: 'Min', type: 'number', defaultValue: '0' },
-    { name: 'max', label: 'Max', type: 'number', defaultValue: '100' },
-  ],
-  outputs: [
-    { name: 'passed', label: 'Passed', type: 'string' },
-    { name: 'value', label: 'Value', type: 'string' },
-    { name: 'inRange', label: 'In Range', type: 'string' },
-  ],
-  run: async (inputs) => numericRangeFilter(inputs),
-})
+// registerBlock({
+//   type: 'numericRangeFilter',
+//   label: 'Numeric Range',
+//   description: 'Pass only when the connected value is within min and max (inclusive).',
+//   category: 'filter',
+//   color: 'yellow',
+//   icon: 'filter',
+//   inputs: [
+//     { name: 'value', label: 'Value', type: 'number', allowVariable: true, accepts: ['number', 'string'] },
+//     { name: 'min', label: 'Min', type: 'number', defaultValue: '0' },
+//     { name: 'max', label: 'Max', type: 'number', defaultValue: '100' },
+//   ],
+//   outputs: [
+//     { name: 'passed', label: 'Passed', type: 'string' },
+//     { name: 'value', label: 'Value', type: 'string' },
+//     { name: 'inRange', label: 'In Range', type: 'string' },
+//   ],
+//   run: async (inputs) => numericRangeFilter(inputs),
+// })
 
 // ─── String match filter ─────────────────────────────────────────────────
-
-registerBlock({
-  type: 'stringMatchFilter',
-  label: 'String Match',
-  description: 'Pass when value matches: contains, equals, or regex pattern.',
-  category: 'filter',
-  color: 'yellow',
-  icon: 'filter',
-  inputs: [
-    { name: 'value', label: 'Value', type: 'text', allowVariable: true, accepts: ['string', 'json'] },
-    { name: 'mode', label: 'Mode', type: 'select', options: ['contains', 'equals', 'regex'], defaultValue: 'contains' },
-    { name: 'pattern', label: 'Pattern', type: 'text', placeholder: 'Substring, exact string, or regex' },
-  ],
-  outputs: [
-    { name: 'passed', label: 'Passed', type: 'string' },
-    { name: 'matched', label: 'Matched', type: 'string' },
-    { name: 'value', label: 'Value', type: 'string' },
-  ],
-  run: async (inputs) => stringMatchFilter(inputs),
-})
+// registerBlock({
+//   type: 'stringMatchFilter',
+//   label: 'String Match',
+//   description: 'Pass when value matches: contains, equals, or regex pattern.',
+//   category: 'filter',
+//   color: 'yellow',
+//   icon: 'filter',
+//   inputs: [
+//     { name: 'value', label: 'Value', type: 'text', allowVariable: true, accepts: ['string', 'json'] },
+//     { name: 'mode', label: 'Mode', type: 'select', options: ['contains', 'equals', 'regex'], defaultValue: 'contains' },
+//     { name: 'pattern', label: 'Pattern', type: 'text', placeholder: 'Substring, exact string, or regex' },
+//   ],
+//   outputs: [
+//     { name: 'passed', label: 'Passed', type: 'string' },
+//     { name: 'matched', label: 'Matched', type: 'string' },
+//     { name: 'value', label: 'Value', type: 'string' },
+//   ],
+//   run: async (inputs) => stringMatchFilter(inputs),
+// })
 
 // ─── Rate limit / debounce ────────────────────────────────────────────────
-
-registerBlock({
-  type: 'rateLimitFilter',
-  label: 'Rate Limit',
-  description: 'Pass only when at least N seconds have passed since last pass (per agent).',
-  category: 'filter',
-  color: 'amber',
-  icon: 'clock',
-  inputs: [
-    { name: 'intervalSeconds', label: 'Min interval (seconds)', type: 'number', defaultValue: '60', min: 1, max: 86400 },
-  ],
-  outputs: [
-    { name: 'passed', label: 'Passed', type: 'string' },
-    { name: 'elapsed', label: 'Elapsed since last', type: 'string' },
-    { name: 'nextAllowedIn', label: 'Next allowed in (s)', type: 'string' },
-  ],
-  run: async (inputs, context) =>
-    rateLimitFilter(inputs, context?.nodeId ?? '', context?.agentId),
-})
+// registerBlock({
+//   type: 'rateLimitFilter',
+//   label: 'Rate Limit',
+//   description: 'Pass only when at least N seconds have passed since last pass (per agent).',
+//   category: 'filter',
+//   color: 'amber',
+//   icon: 'clock',
+//   inputs: [
+//     { name: 'intervalSeconds', label: 'Min interval (seconds)', type: 'number', defaultValue: '60', min: 1, max: 86400 },
+//   ],
+//   outputs: [
+//     { name: 'passed', label: 'Passed', type: 'string' },
+//     { name: 'elapsed', label: 'Elapsed since last', type: 'string' },
+//     { name: 'nextAllowedIn', label: 'Next allowed in (s)', type: 'string' },
+//   ],
+//   run: async (inputs, context) =>
+//     rateLimitFilter(inputs, context?.nodeId ?? '', context?.agentId),
+// })
 
 // ─── Delay (sleep) ────────────────────────────────────────────────────────
 
@@ -784,45 +860,43 @@ registerBlock({
 })
 
 // ─── Conditional branch (if/else) ──────────────────────────────────────────
-
-registerBlock({
-  type: 'conditionalBranch',
-  label: 'Conditional',
-  description: 'Branch by condition: connect the value; "true" and "false" outputs run only the matching branch.',
-  category: 'filter',
-  color: 'blue',
-  icon: 'gitBranch',
-  inputs: [
-    { name: 'condition', label: 'Condition', type: 'text', allowVariable: true, accepts: ['string', 'number', 'boolean'] },
-  ],
-  outputs: [
-    { name: 'true', label: 'True', type: 'string' },
-    { name: 'false', label: 'False', type: 'string' },
-  ],
-  run: async (inputs) => conditionalBranch(inputs),
-})
+// registerBlock({
+//   type: 'conditionalBranch',
+//   label: 'Conditional',
+//   description: 'Branch by condition: connect the value; "true" and "false" outputs run only the matching branch.',
+//   category: 'filter',
+//   color: 'blue',
+//   icon: 'gitBranch',
+//   inputs: [
+//     { name: 'condition', label: 'Condition', type: 'text', allowVariable: true, accepts: ['string', 'number', 'boolean'] },
+//   ],
+//   outputs: [
+//     { name: 'true', label: 'True', type: 'string' },
+//     { name: 'false', label: 'False', type: 'string' },
+//   ],
+//   run: async (inputs) => conditionalBranch(inputs),
+// })
 
 // ─── Merge ────────────────────────────────────────────────────────────────
-
-registerBlock({
-  type: 'merge',
-  label: 'Merge',
-  description: 'Combine multiple inputs into one output. Connect values to input handles or leave empty.',
-  category: 'action',
-  color: 'violet',
-  icon: 'merge',
-  inputs: [
-    { name: 'mode', label: 'Mode', type: 'select', options: ['first', 'concat', 'json'], defaultValue: 'first' },
-    { name: 'separator', label: 'Separator (for concat)', type: 'text', defaultValue: ', ' },
-    { name: 'in1', label: 'In 1', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
-    { name: 'in2', label: 'In 2', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
-    { name: 'in3', label: 'In 3', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
-  ],
-  outputs: [
-    { name: 'out', label: 'Out', type: 'string' },
-  ],
-  run: async (inputs) => mergeOutputs(inputs),
-})
+// registerBlock({
+//   type: 'merge',
+//   label: 'Merge',
+//   description: 'Combine multiple inputs into one output. Connect values to input handles or leave empty.',
+//   category: 'action',
+//   color: 'violet',
+//   icon: 'merge',
+//   inputs: [
+//     { name: 'mode', label: 'Mode', type: 'select', options: ['first', 'concat', 'json'], defaultValue: 'first' },
+//     { name: 'separator', label: 'Separator (for concat)', type: 'text', defaultValue: ', ' },
+//     { name: 'in1', label: 'In 1', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+//     { name: 'in2', label: 'In 2', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+//     { name: 'in3', label: 'In 3', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+//   ],
+//   outputs: [
+//     { name: 'out', label: 'Out', type: 'string' },
+//   ],
+//   run: async (inputs) => mergeOutputs(inputs),
+// })
 
 // ─── Constant ─────────────────────────────────────────────────────────────
 

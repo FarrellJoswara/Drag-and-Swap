@@ -170,7 +170,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
 
   // Connection info for inputs that have an incoming edge (for output dropdown)
   // Plus synthetic connectionInfo for inputs with sourceOutputsFrom (no edge; "From source" from another input's source)
-  // Skip trigger-only connections: triggers are for execution order, not data flow (except streamDisplay data)
   const connectionInfoByInput = useMemo(() => {
     const nodes = getNodes()
     const result: Record<string, ConnectionInfo> = {}
@@ -182,9 +181,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
         const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
         const sourceDef = getBlock(sourceBlockType)
         if (!sourceDef) continue
-        if (sourceDef.category === 'trigger' && !(blockType === 'streamDisplay' && field.name === 'data')) {
-          continue // Trigger connections don't pass data; show literal input instead
-        }
         const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
         if (!sourceOutputs.length) continue
         const currentSourceHandle = sourceOutputs.some((o) => o.name === edge.sourceHandle)
@@ -217,7 +213,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       }
     }
     return result
-  }, [edges, id, definition.inputs, getNodes, blockType])
+  }, [edges, id, definition.inputs, getNodes])
 
   // Unique source block labels for all edges targeting this node ("Connected to X, Y")
   const connectedSourceLabels = useMemo(() => {
@@ -289,11 +285,13 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     ? new Set(definition.sidePanel.mainInputNames)
     : null
   const hiddenInputNames = (blockType === 'swap' || blockType === 'getQuote') ? new Set(['amountDenomination']) : new Set<string>()
+  const visibleNames = definition.getVisibleInputs ? new Set(definition.getVisibleInputs(inputs)) : null
+  const isVisible = (name: string) => !visibleNames || visibleNames.has(name)
   const mainInputs = mainInputNames
-    ? definition.inputs.filter((f) => mainInputNames.has(f.name) && !hiddenInputNames.has(f.name))
+    ? definition.inputs.filter((f) => mainInputNames!.has(f.name) && !hiddenInputNames.has(f.name) && isVisible(f.name))
     : []
   const panelInputs = mainInputNames
-    ? definition.inputs.filter((f) => !mainInputNames.has(f.name) && !hiddenInputNames.has(f.name))
+    ? definition.inputs.filter((f) => !mainInputNames.has(f.name) && !hiddenInputNames.has(f.name) && isVisible(f.name))
     : []
 
   const renderOutputsSection = () =>
@@ -504,10 +502,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   </div>
                 )
               }
-              const valueEmpty = (inputs[field.name] ?? '').trim() === ''
-              const isConnected = inputConnections[field.name]
-              const showInlineHandle =
-                field.showHandleWhenEmpty && (valueEmpty || isConnected)
               const inputRow = (
                 <BlockInput
                   key={field.name}
@@ -526,22 +520,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   onSuffixClick={field.name === 'amount' ? onAmountSuffixClick : undefined}
                 />
               )
-              if (showInlineHandle) {
-                return (
-                  <div key={field.name} className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">{inputRow}</div>
-                    <div className="relative w-4 h-4 flex-shrink-0 flex items-center justify-center [&_.react-flow__handle]:!relative [&_.react-flow__handle]:!left-0 [&_.react-flow__handle]:!top-0 [&_.react-flow__handle]:!translate-x-0 [&_.react-flow__handle]:!translate-y-0 [&_.react-flow__handle]:!m-0" data-handle-for={field.name}>
-                      <Handle
-                        type="target"
-                        position={Position.Left}
-                        id={field.name}
-                        className={isConnected ? '!bg-emerald-400 !border-emerald-500' : ''}
-                        style={{ position: 'relative', left: 0, top: 0, transform: 'none', margin: 0 }}
-                      />
-                    </div>
-                  </div>
-                )
-              }
               return inputRow
             })
           )}
@@ -641,18 +619,19 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     <div className="relative">
       {nodeContent}
 
-      {/* Input handles on left side (skip fields with showHandleWhenEmpty — those are rendered inline to the right of their input) */}
+      {/* Input handles on left edge so React Flow sets targetHandle and BlockInput shows output dropdown (General Filter, Merge). showHandleWhenEmpty: only when value empty or connected. */}
       {definition.category !== 'trigger' && (
-        <div className="absolute left-0 top-0 bottom-0 w-[10px] -ml-[5px] pointer-events-none">
+        <div className="absolute -left-[6px] top-0 bottom-0 w-[12px] z-10 pointer-events-none">
           <div className="absolute inset-0 pointer-events-auto">
             {definition.inputs.map((field, index) => {
-              if (field.showHandleWhenEmpty) return null
               if (field.type === 'walletAddress') return null
               if (field.type === 'select' || field.type === 'toggle') return null
               if (blockType === 'streamDisplay' && field.name === 'fields') return null
               if (field.sourceOutputsFrom) return null
               if (hiddenInputNames.has(field.name)) return null
+              const valueEmpty = (inputs[field.name] ?? '').trim() === ''
               const isConnected = inputConnections[field.name]
+              if (field.showHandleWhenEmpty && !valueEmpty && !isConnected) return null
               const topPercent = ((index + 0.5) / definition.inputs.length) * 100
               return (
                 <Handle
@@ -661,7 +640,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   position={Position.Left}
                   id={field.name}
                   className={isConnected ? '!bg-emerald-400 !border-emerald-500' : ''}
-                  style={{ top: `${topPercent}%`, transform: 'translateY(-50%)' }}
+                  style={{ left: 0, top: `${topPercent}%`, transform: 'translateY(-50%)' }}
                 />
               )
             })}

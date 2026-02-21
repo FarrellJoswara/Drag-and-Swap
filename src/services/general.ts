@@ -67,15 +67,10 @@ function toComparable(a: unknown, b: unknown): { a: number | string; b: number |
   }
 }
 
-export function generalFilter(inputs: Record<string, string>): {
-  passed: 'true' | 'false'
-  matchedValue: string
-  data: string
-} {
+export function generalFilter(inputs: Record<string, string>): { passed: 'true' | 'false' } {
   const top = inputs.valueToFilterTop ?? ''
   const bottom = inputs.valueToFilterBottom ?? ''
   const operator = (inputs.operator ?? 'greater_than') as GeneralFilterOperator
-  const passThrough = inputs.passThrough !== 'false'
 
   let passed: boolean
   const { a: left, b: right, numeric } = toComparable(top, bottom)
@@ -121,12 +116,8 @@ export function generalFilter(inputs: Record<string, string>): {
       passed = (left as string) === (right as string)
   }
 
-  const matchedValue = top
-  const data = passThrough && passed ? top : ''
   return {
     passed: passed ? 'true' : 'false',
-    matchedValue,
-    data,
   }
 }
 
