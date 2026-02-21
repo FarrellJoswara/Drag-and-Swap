@@ -257,6 +257,9 @@ export default function App() {
   /** Dedupe by id so React Flow never sees duplicate keys (e.g. from undo or stale state). */
   const nodesDeduped = useMemo(() => dedupeNodesById(nodes), [nodes])
 
+  /** Filter edges so React Flow never sees references to handles that no longer exist (e.g. "protocols"). */
+  const edgesFiltered = useMemo(() => validateAndFilterEdges(nodes, edges), [nodes, edges])
+
   const hasUnsavedChanges = useMemo(() => {
     if (!agentId) return false
     const agent = getAgentById(agentId)
@@ -292,6 +295,14 @@ export default function App() {
     hasLoadedForAgentRef.current = true
   }, [pathname, agentId, walletAddress])
 
+  // Sanitize edges: remove any that reference handles that no longer exist (e.g. after removing block inputs like "protocols")
+  useEffect(() => {
+    const filtered = validateAndFilterEdges(nodes, edges)
+    if (filtered.length < edges.length) {
+      setEdges(filtered)
+    }
+  }, [nodes, edges, setEdges])
+
   // Reset unsaved ref when switching agents so we don't carry over transition state.
   useEffect(() => {
     prevUnsavedRef.current = false
@@ -300,9 +311,9 @@ export default function App() {
   // Expose current flow for active agent runners so "Fields to Show" and other toggles apply without saving.
   useEffect(() => {
     if (!agentId) return
-    setCurrentFlow(agentId, { nodes, edges })
+    setCurrentFlow(agentId, { nodes, edges: edgesFiltered })
     return () => setCurrentFlow(agentId, null)
-  }, [agentId, nodes, edges, setCurrentFlow])
+  }, [agentId, nodes, edgesFiltered, setCurrentFlow])
 
   // When user makes an edit (hasUnsavedChanges false → true) and agent is active, auto-turn off until they save.
   // Only run after we've loaded this agent's flow (hasLoadedForAgentRef) so we don't turn off on first paint.
@@ -650,7 +661,7 @@ export default function App() {
           <Topbar
             agentId={agentId}
             nodes={nodes}
-            edges={edges}
+            edges={edgesFiltered}
             onClear={handleClear}
             onUndo={handleUndo}
             onRedo={handleRedo}
@@ -664,7 +675,7 @@ export default function App() {
               key={agentId ?? 'new'}
               ref={reactFlowInstance as any}
               nodes={nodesDeduped}
-              edges={edges}
+              edges={edgesFiltered}
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               onConnect={onConnect}

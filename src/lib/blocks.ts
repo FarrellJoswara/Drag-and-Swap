@@ -446,16 +446,11 @@ registerBlock({
   service: 'uniswap',
   color: 'rose',
   icon: 'zap',
-  sidePanel: { label: 'Advanced', mainInputNames: ['fromToken', 'toToken', 'amount', 'chainId'] },
   inputs: [
     { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
     { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
     { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
-    { name: 'chainId', label: 'Chain', type: 'select', options: ['1', '10', '8453', '42161', '137'], defaultValue: '1' },
     { name: 'amountDenomination', label: 'Amount in', type: 'select', options: ['Token', 'USD'], defaultValue: 'Token' },
-    { name: 'swapType', label: 'Swap Type', type: 'select', options: ['EXACT_INPUT', 'EXACT_OUTPUT'], defaultValue: 'EXACT_INPUT' },
-    { name: 'protocols', label: 'Protocols', type: 'select', options: ['V2,V3,V4', 'V2', 'V3', 'V4'], defaultValue: 'V2,V3,V4' },
-    { name: 'routingPreference', label: 'Routing', type: 'select', options: ['BEST_PRICE', 'FASTEST', 'CLASSIC'], defaultValue: 'BEST_PRICE' },
   ],
   outputs: [
     { name: 'txHash', label: 'Transaction Hash' },
@@ -473,16 +468,11 @@ registerBlock({
   service: 'uniswap',
   color: 'rose',
   icon: 'barChart',
-  sidePanel: { label: 'Advanced', mainInputNames: ['fromToken', 'toToken', 'amount', 'chainId'] },
   inputs: [
     { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
     { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
     { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
-    { name: 'chainId', label: 'Chain', type: 'select', options: ['1', '10', '8453', '42161', '137'], defaultValue: '1' },
     { name: 'amountDenomination', label: 'Amount in', type: 'select', options: ['Token', 'USD'], defaultValue: 'Token' },
-    { name: 'swapType', label: 'Swap Type', type: 'select', options: ['EXACT_INPUT', 'EXACT_OUTPUT'], defaultValue: 'EXACT_INPUT' },
-    { name: 'protocols', label: 'Protocols', type: 'select', options: ['V2,V3,V4', 'V2', 'V3', 'V4'], defaultValue: 'V2,V3,V4' },
-    { name: 'routingPreference', label: 'Routing', type: 'select', options: ['BEST_PRICE', 'FASTEST', 'CLASSIC'], defaultValue: 'BEST_PRICE' },
   ],
   outputs: [
     { name: 'amountOut', label: 'Amount Out (raw)', type: 'string' },

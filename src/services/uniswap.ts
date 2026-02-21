@@ -59,9 +59,8 @@ export const TOKEN_ADDRESSES: Record<number, Record<string, string>> = {
     USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
     USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     WBTC: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
-    DAI: '0x6B175474E89094C44Da98b954Ee5cdeEF5FD7E5',
-    ARB: '0xB50721BCf8d2c2919978F6619623101632BEC1ef',
-    OP: '0x4200000000000000000000000000000000000042',
+    DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+    ARB: '0xB50721BCf8d664c30412Cfbc6cf7a15145234ad1',
     LINK: '0x514910771AF9Ca656af840dff83E8264EcF986CA',
     UNI: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
     MATIC: '0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0',
@@ -84,6 +83,17 @@ export function getChainsForToken(symbol: string): number[] {
     if (tokens[symbol] && !chains.includes(chainId)) chains.push(chainId)
   }
   return chains.sort((a, b) => (a === 1 ? -1 : b === 1 ? 1 : a - b))
+}
+
+/** Chain that supports both tokens. Prefers Ethereum (1) when available. */
+export function getChainForSwap(fromToken: string, toToken: string): number {
+  const fromChains = getChainsForToken(fromToken)
+  const toChains = getChainsForToken(toToken)
+  const common = fromChains.filter((c) => toChains.includes(c))
+  if (common.length === 0) {
+    throw new Error(`No chain supports both ${fromToken} and ${toToken}. Try different tokens.`)
+  }
+  return common[0]
 }
 
 function resolveTokenAddress(symbol: string, chainId: number): string {
@@ -133,9 +143,6 @@ async function checkApproval(
   if (data?.errorCode) throw new Error(data.detail ?? `Check approval failed: ${data.errorCode}`)
   return { approval: data.approval ?? null }
 }
-
-/** Valid chain IDs for Uniswap Trading API */
-const VALID_CHAIN_IDS = new Set([1, 10, 137, 42161, 56, 8453, 81457, 43114, 42220, 7777777, 324, 11155111, 1301, 480, 84532, 130, 1868, 143, 196])
 
 /** Allows integers, decimals, and leading-decimal fractions like .000001 */
 const NUMERIC_AMOUNT_REGEX = /^(\d+\.?\d*|\.\d+)$/
@@ -204,9 +211,9 @@ export function blockInputsToApiParams(inputs: Record<string, string>): Promise<
   protocols: string[]
   routingPreference: string
 }> {
-  const rawChainId = inputs.chainId ?? '1'
-  const chainId = VALID_CHAIN_IDS.has(Number(rawChainId)) ? Number(rawChainId) : 1
+  const fromToken = inputs.fromToken || 'ETH'
   const toToken = inputs.toToken || 'USDC'
+  const chainId = getChainForSwap(fromToken, toToken)
   const toTokenChains = getChainsForToken(toToken)
   const tokenOutChainId = toTokenChains.includes(chainId) ? chainId : (toTokenChains[0] ?? chainId)
 
@@ -221,7 +228,6 @@ export function blockInputsToApiParams(inputs: Record<string, string>): Promise<
   }
 
   const swapType = (inputs.swapType ?? 'EXACT_INPUT').toUpperCase() as 'EXACT_INPUT' | 'EXACT_OUTPUT'
-  const fromToken = inputs.fromToken || 'ETH'
   const amountDenomination = (inputs.amountDenomination ?? 'Token').toUpperCase()
 
   const protocolsStr = inputs.protocols ?? 'V2,V3,V4'

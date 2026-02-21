@@ -271,8 +271,8 @@ export const minimapColor: Record<BlockColor, string> = {
 }
 
 // ── Common token list ─────────────────────────────────────
+// Only the ones supported by the uniswap block
 
 export const DEFAULT_TOKENS = [
-  'ETH', 'USDC', 'USDT', 'WBTC', 'DAI', 'ARB', 'OP', 'LINK', 'UNI', 'AAVE',
-  'MATIC', 'CRV', 'MKR', 'COMP', 'SNX', 'SUSHI', 'YFI', 'BAL', 'LDO', 'RPL',
+  'ETH', 'USDC', 'USDT', 'WBTC', 'DAI', 'ARB', 'LINK', 'UNI', 'MATIC',
 ]

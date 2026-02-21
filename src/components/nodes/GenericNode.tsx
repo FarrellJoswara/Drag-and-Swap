@@ -17,7 +17,6 @@ import { useToast } from '../ui/Toast'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
 import { useSendTransaction } from '../../hooks/useSendTransaction'
 import { useSignTypedData } from '../../hooks/useSignTypedData'
-import { getChainsForToken } from '../../services/uniswap'
 import { useAgentId } from '../../contexts/AgentIdContext'
 import { useDisplayValue } from '../../contexts/DisplayValueContext'
 
@@ -113,22 +112,14 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
 
   const updateInput = useCallback(
     (name: string, value: string) => {
-      const updates: Record<string, string> = { [name]: value }
-      if ((blockType === 'swap' || blockType === 'getQuote') && (name === 'fromToken' || name === 'toToken')) {
-        const chains = getChainsForToken(value)
-        const currentChainId = String(inputs.chainId ?? '1')
-        if (chains.length > 0 && !chains.includes(Number(currentChainId))) {
-          updates.chainId = String(chains[0])
-        }
-      }
-      setInputs((prev) => ({ ...prev, ...updates }))
+      setInputs((prev) => ({ ...prev, [name]: value }))
       setNodes((nodes) =>
         nodes.map((n) =>
-          n.id === id ? { ...n, data: { ...n.data, ...updates } } : n,
+          n.id === id ? { ...n, data: { ...n.data, [name]: value } } : n,
         ),
       )
     },
-    [id, setNodes, blockType, inputs.chainId],
+    [id, setNodes],
   )
 
   const Icon = getBlockIcon(definition.icon)
@@ -315,9 +306,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     isSwapOrQuote && amountDenomination === 'USD'
       ? 'USD'
       : isSwapOrQuote
-        ? ((inputs.swapType ?? 'EXACT_INPUT').toUpperCase() === 'EXACT_OUTPUT'
-            ? inputs.toToken
-            : inputs.fromToken) || 'ETH'
+        ? (inputs.fromToken || 'ETH')
         : undefined
   const onAmountSuffixClick = isSwapOrQuote
     ? () => updateInput('amountDenomination', amountDenomination === 'USD' ? 'Token' : 'USD')
@@ -415,7 +404,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               Run Once
             </button>
           ) : (
-            definition.inputs.map((field) => {
+            definition.inputs.filter((f) => !hiddenInputNames.has(f.name)).map((field) => {
               if (blockType === 'streamDisplay' && field.name === 'data') {
                 const dataConn = connectionInfoByInput['data']
                 if (!dataConn) {
@@ -496,6 +485,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                       : undefined
                   }
                   hideSourceLabel={connectedSourceLabels.length > 0}
+                  suffix={field.name === 'amount' ? amountSuffix : undefined}
+                  onSuffixClick={field.name === 'amount' ? onAmountSuffixClick : undefined}
                 />
               )
             })
@@ -604,6 +595,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               return <div key={field.name} className="w-[5px]" aria-hidden />
             }
             if (blockType === 'streamDisplay' && field.name === 'fields') {
+              return <div key={field.name} className="w-[5px]" aria-hidden />
+            }
+            if (hiddenInputNames.has(field.name)) {
               return <div key={field.name} className="w-[5px]" aria-hidden />
             }
             const isConnected = inputConnections[field.name]
