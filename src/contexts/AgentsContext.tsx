@@ -50,7 +50,7 @@ interface AgentsContextValue {
   ) => void
   toggleActive: (id: string) => void
   removeAgent: (id: string) => void
-  updateAgent: (id: string, updates: Partial<Pick<DeployedAgent, 'name' | 'description'>>) => void
+  updateAgent: (id: string, updates: Partial<Pick<DeployedAgent, 'name' | 'description' | 'allowTradeOnBehalf'>>) => void
 }
 
 const AgentsContext = createContext<AgentsContextValue | null>(null)
@@ -137,7 +137,7 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
   )
 
   const updateAgent = useCallback(
-    (id: string, updates: Partial<Pick<DeployedAgent, 'name' | 'description'>>) => {
+    (id: string, updates: Partial<Pick<DeployedAgent, 'name' | 'description' | 'allowTradeOnBehalf'>>) => {
       if (!walletAddress) return
       setAgents((prev) => {
         const next = prev.map((a) => (a.id === id ? { ...a, ...updates } : a))

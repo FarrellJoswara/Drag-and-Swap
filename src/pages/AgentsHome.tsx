@@ -1,14 +1,25 @@
+import { useState } from 'react'
 import { usePrivy } from '@privy-io/react-auth'
 import { Link } from 'react-router-dom'
-import { Plus, Wallet, LayoutGrid, ArrowRight } from 'lucide-react'
+import { Plus, Wallet, LayoutGrid, ArrowRight, Settings } from 'lucide-react'
+import { useAddServerSigner } from '../hooks/useAddServerSigner'
 import { useAgents } from '../contexts/AgentsContext'
 import { useWalletAddress } from '../hooks/useWalletAddress'
+import { useToast } from '../components/ui/Toast'
 import AgentCard from '../components/agents/AgentCard'
+import SettingsModal from '../components/settings/SettingsModal'
+import AgentSettingsModal from '../components/agents/AgentSettingsModal'
+import { ShieldCheck } from 'lucide-react'
 
 export default function AgentsHome() {
   const { ready, authenticated, login, logout } = usePrivy()
   const walletAddress = useWalletAddress()
-  const { agents, toggleActive, removeAgent, updateAgent } = useAgents()
+  const { agents, toggleActive, removeAgent, updateAgent, getAgentById } = useAgents()
+  const { addServerSigner, isLoading: signerLoading, isAvailable: signerAvailable, error: signerError } = useAddServerSigner()
+  const { toast } = useToast()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null)
+  const agentForSettings = agentSettingsId ? getAgentById(agentSettingsId) : null
 
   if (!ready) {
     return (
@@ -67,6 +78,27 @@ export default function AgentsHome() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 transition-colors"
+            title="Settings"
+            aria-label="Settings"
+          >
+            <Settings size={16} />
+          </button>
+          {signerAvailable && (
+            <button
+              type="button"
+              onClick={() => addServerSigner().then((r) => { if (r.success) toast('Trade on my behalf enabled', 'success'); if (r.error) toast(r.error, 'error') })}
+              disabled={signerLoading}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-600/20 border border-violet-500/30 text-violet-300 hover:bg-violet-600/30 text-xs font-medium disabled:opacity-50"
+              title="Allow the app to execute swaps from your wallet when you're offline (e.g. limit orders)"
+            >
+              <ShieldCheck size={12} />
+              {signerLoading ? 'Enabling…' : 'Trade on my behalf'}
+            </button>
+          )}
           {walletAddress && (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800">
               <Wallet size={12} className="text-slate-500" />
@@ -74,6 +106,9 @@ export default function AgentsHome() {
                 {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
               </span>
             </div>
+          )}
+          {signerError && (
+            <span className="text-[10px] text-amber-400 max-w-[120px] truncate" title={signerError}>{signerError}</span>
           )}
           <button
             onClick={logout}
@@ -129,6 +164,7 @@ export default function AgentsHome() {
                     onToggleActive={toggleActive}
                     onRemove={removeAgent}
                     onRename={(id, name) => updateAgent(id, { name })}
+                    onOpenSettings={() => setAgentSettingsId(agent.id)}
                     editPath={`/agent/${agent.id}`}
                   />
                 ))}
@@ -137,6 +173,16 @@ export default function AgentsHome() {
           )}
         </div>
       </main>
+
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {agentForSettings && (
+        <AgentSettingsModal
+          agent={agentForSettings}
+          isOpen={!!agentSettingsId}
+          onClose={() => setAgentSettingsId(null)}
+          onToggleTradeOnBehalf={(id, enabled) => updateAgent(id, { allowTradeOnBehalf: enabled })}
+        />
+      )}
     </div>
   )
 }

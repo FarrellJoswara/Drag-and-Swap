@@ -94,16 +94,35 @@ import {
   delay,
   transformDataType,
   priceChangeWithBuffer,
-  // numericRangeFilter,
-  // stringMatchFilter,
-  // rateLimitFilter,
-  // conditionalBranch,
-  // mergeOutputs,
-  // logDebug,
+  mathOperation,
+  numericRangeFilter,
+  rateLimitFilter,
+  mergeOutputs,
+  logDebug,
+  templateString,
 } from '../services/general'
 import { sendTelegram, startTelegramMessagePolling } from '../services/notifications'
 import { getWalletBalance } from '../services/walletBalance'
 // import { subscribeToTransfer } from '../services/walletEvent'
+
+// ─── Chain presets (for wallet balance and other chain ID inputs) ───────────
+const CHAIN_ID_OPTIONS = ['1', '8453', '42161', '10', '137', ''] as const
+const CHAIN_ID_OPTION_LABELS: Record<string, string> = {
+  '1': 'Ethereum',
+  '8453': 'Base',
+  '42161': 'Arbitrum One',
+  '10': 'Optimism',
+  '137': 'Polygon',
+  '': 'Custom',
+}
+
+/** Resolve chain ID from chainIdSource (preset) or chainIdCustom (when Custom). */
+function resolveChainId(inputs: Record<string, string>): string {
+  const preset = (inputs.chainIdSource ?? inputs.chainId ?? '').trim()
+  if (preset && preset !== 'Custom') return preset
+  const custom = (inputs.chainIdCustom ?? inputs.chainId ?? '1').trim()
+  return custom || '1'
+}
 
 // ─── Unified Hyperliquid Stream Block ───────────────────
 
@@ -1442,6 +1461,29 @@ registerBlock({
   },
 })
 
+// ─── Math ────────────────────────────────────────────────
+
+registerBlock({
+  type: 'math',
+  label: 'Math',
+  description: 'Apply an operation to two numbers. Connect values or enter literals. Use with Numeric Range or General Comparator.',
+  category: 'math',
+  color: 'yellow',
+  icon: 'filter',
+  inputs: [
+    { name: 'a', label: 'A', type: 'number', placeholder: 'Value or connect', allowVariable: true, accepts: ['number', 'string'], showHandleWhenEmpty: true },
+    { name: 'operation', label: 'Operation', type: 'select', options: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'modulo'], defaultValue: 'add', optionDescriptions: { add: 'A + B', subtract: 'A - B', multiply: 'A × B', divide: 'A ÷ B', min: 'min(A, B)', max: 'max(A, B)', modulo: 'A mod B' } },
+    { name: 'b', label: 'B', type: 'number', placeholder: 'Value or connect', allowVariable: true, accepts: ['number', 'string'], showHandleWhenEmpty: true },
+  ],
+  outputs: [
+    { name: 'result', label: 'Result', type: 'string' },
+  ],
+  run: async (inputs): Promise<Record<string, string>> => {
+    const result = mathOperation(inputs.a ?? '', inputs.b ?? '', inputs.operation ?? 'add')
+    return { result }
+  },
+})
+
 // ─── Uniswap Blocks ─────────────────────────────────────
 
 registerBlock({
@@ -1464,6 +1506,61 @@ registerBlock({
     { name: 'gasUsed', label: 'Gas Used' },
   ],
   run: async (inputs, context) => swap(inputs, context),
+})
+
+// ─── Trade on my behalf (Uniswap swap with wallet) ─────────────────
+// Uses connected Privy wallet; shows a warning when added from toolbox.
+
+registerBlock({
+  type: 'swapOnBehalf',
+  label: 'Trade on my behalf',
+  description: 'Execute a swap using your connected wallet. When "No approval popup" is on, the server signs for you (no wallet prompt). Requires you to have enabled "Allow app to trade on my behalf" and server configured with PRIVY_AUTH_PRIVATE_KEY.',
+  category: 'action',
+  service: 'uniswap',
+  color: 'amber',
+  icon: 'zap',
+  inputs: [
+    { name: 'useServerSigner', label: 'No approval popup (server signs)', type: 'toggle', defaultValue: 'true' },
+    { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
+    { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
+    { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
+    { name: 'amountDenomination', label: 'Amount in', type: 'select', options: ['Token', 'USD'], defaultValue: 'Token' },
+  ],
+  outputs: [
+    { name: 'txHash', label: 'Transaction Hash' },
+    { name: 'amountOut', label: 'Amount Received' },
+    { name: 'gasUsed', label: 'Gas Used' },
+  ],
+  run: async (inputs, context) => swap(inputs, context),
+})
+
+// ─── Trade on my behalf (Privy server signers) ─────────────────────
+// See https://docs.privy.io/recipes/wallets/user-and-server-signers
+
+registerBlock({
+  type: 'allowTradeOnBehalf',
+  label: 'Allow app to trade on my behalf',
+  description: 'Add the app\'s server signer to your embedded wallet so the app can execute swaps when you\'re offline (e.g. limit orders, rebalancing). Run once to enable. Requires VITE_PRIVY_KEY_QUORUM_ID.',
+  category: 'action',
+  service: 'privy',
+  color: 'violet',
+  icon: 'shield-check',
+  inputs: [],
+  outputs: [
+    { name: 'success', label: 'Success', type: 'string' },
+    { name: 'error', label: 'Error', type: 'string' },
+  ],
+  run: async (_inputs, context): Promise<Record<string, string>> => {
+    const addServerSigner = context?.addServerSigner
+    if (!addServerSigner) {
+      return { success: 'false', error: 'Not available in this context. Run from the canvas or ensure you are signed in with Privy.' }
+    }
+    const result = await addServerSigner()
+    return {
+      success: result.success ? 'true' : 'false',
+      error: result.error ?? '',
+    }
+  },
 })
 
 registerBlock({
@@ -1624,29 +1721,36 @@ registerBlock({
 
 // ─── Telegram message trigger (get updates) ───────────────────────────────
 
+const DEFAULT_TELEGRAM_BOT_TOKEN = '8439123450:AAGze8HrjqYlF-Gsfxpa-LC9h09Rz42_Oe0'
+
+function getAppTelegramBotToken(): string {
+  const env = (import.meta.env.VITE_TELEGRAM_BOT_TOKEN as string | undefined ?? '').trim()
+  return env || DEFAULT_TELEGRAM_BOT_TOKEN
+}
+
 registerBlock({
   type: 'telegramMessageTrigger',
   label: 'Get Telegram',
-  description: 'Trigger when your bot receives a message. Polls the Telegram Bot API for new messages. Connect to actions (e.g. Send Telegram) or filters.',
+  description: 'Trigger when your bot receives a message. Optionally filter by chat or by sender handle (@username).',
   category: 'trigger',
   color: 'blue',
   icon: 'messageSquare',
   inputs: [
-    { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
     { name: 'chatIdFilter', label: 'Chat ID filter (optional)', type: 'text', placeholder: 'Only trigger for this chat; leave empty for all' },
+    { name: 'fromHandleFilter', label: 'From handle (optional)', type: 'text', placeholder: '@username or username — only messages from this user' },
     { name: 'pollIntervalSeconds', label: 'Poll interval (seconds)', type: 'number', placeholder: '5', defaultValue: '5', min: 2, max: 60 },
-    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
   ],
   outputs: [
     { name: 'messageText', label: 'Message text', type: 'string' },
     { name: 'chatId', label: 'Chat ID', type: 'string' },
     { name: 'fromId', label: 'From user ID', type: 'string' },
-    { name: 'username', label: 'Username', type: 'string' },
+    { name: 'username', label: 'Handle (username)', type: 'string' },
     { name: 'firstName', label: 'First name', type: 'string' },
     { name: 'updateId', label: 'Update ID', type: 'string' },
     { name: 'messageId', label: 'Message ID', type: 'string' },
     { name: 'date', label: 'Date (Unix)', type: 'string' },
   ],
+  getVisibleInputs: () => ['chatIdFilter', 'fromHandleFilter', 'pollIntervalSeconds'],
   run: async () => ({
     messageText: '',
     chatId: '',
@@ -1658,16 +1762,12 @@ registerBlock({
     date: '',
   }),
   subscribe: (inputs, onTrigger) => {
-    const botToken = (inputs.botToken ?? '').trim()
-    if (!botToken) {
-      console.warn('[Get Telegram] Bot token is required')
-      return () => {}
-    }
+    const botToken = getAppTelegramBotToken()
     return startTelegramMessagePolling(
       botToken,
       {
-        useCorsProxy: inputs.useCorsProxy !== 'false',
         chatIdFilter: (inputs.chatIdFilter ?? '').trim() || undefined,
+        fromHandleFilter: (inputs.fromHandleFilter ?? '').trim() || undefined,
         pollIntervalSeconds: Math.max(2, Math.min(60, Number(inputs.pollIntervalSeconds) || 5)),
       },
       onTrigger,
@@ -1680,23 +1780,21 @@ registerBlock({
 registerBlock({
   type: 'sendTelegram',
   label: 'Send Telegram',
-  description: 'Send a message via Telegram Bot API. Create a bot with @BotFather and get chat ID from @userinfobot.',
+  description: 'Send a message via the app Telegram bot. Use Chat ID (from @userinfobot) or @handle to message a user or channel.',
   category: 'action',
   color: 'blue',
   icon: 'messageSquare',
   inputs: [
-    { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
-    { name: 'chatId', label: 'Chat ID', type: 'text', placeholder: 'e.g. -1001234567890' },
-    { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
-    { name: 'parseMode', label: 'Parse mode', type: 'select', options: ['HTML', 'Markdown', 'MarkdownV2'], defaultValue: 'HTML' },
-    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
+    { name: 'chatId', label: 'Chat ID or @handle', type: 'text', placeholder: 'e.g. -1001234567890 or @username', allowVariable: true },
+    { name: 'message', label: 'Message', type: 'textarea', rows: 3, placeholder: 'Type text or connect a data source (e.g. Get Telegram → messageText)', allowVariable: true },
   ],
   outputs: [
     { name: 'ok', label: 'OK', type: 'boolean' },
     { name: 'status', label: 'Status', type: 'string' },
     { name: 'response', label: 'Response', type: 'json' },
   ],
-  run: async (inputs) => sendTelegram(inputs),
+  getVisibleInputs: () => ['chatId', 'message'],
+  run: async (inputs) => sendTelegram({ ...inputs, botToken: getAppTelegramBotToken() }),
 })
 
 // ─── Get wallet balance ──────────────────────────────────────────────────
@@ -1711,14 +1809,102 @@ registerBlock({
   inputs: [
     { name: 'wallet', label: 'Wallet address', type: 'address', placeholder: '0x... or leave empty for connected', allowVariable: true },
     { name: 'token', label: 'Token (optional)', type: 'address', placeholder: 'Leave empty for native ETH' },
-    { name: 'chainId', label: 'Chain ID', type: 'number', placeholder: '1', defaultValue: '1' },
+    {
+      name: 'chainIdSource',
+      label: 'Chain',
+      type: 'select',
+      options: [...CHAIN_ID_OPTIONS],
+      optionLabels: CHAIN_ID_OPTION_LABELS,
+      defaultValue: '1',
+    },
+    { name: 'chainIdCustom', label: 'Chain ID (custom)', type: 'number', placeholder: 'e.g. 1', defaultValue: '1' },
     { name: 'rpcUrl', label: 'RPC URL (optional)', type: 'text', placeholder: 'Leave empty for default' },
   ],
+  getVisibleInputs: (inputs) => {
+    const base = ['wallet', 'token', 'chainIdSource', 'rpcUrl']
+    if ((inputs.chainIdSource ?? '').trim() === '') base.push('chainIdCustom')
+    return base
+  },
   outputs: [
     { name: 'balance', label: 'Balance (raw)', type: 'string' },
     { name: 'balanceFormatted', label: 'Balance (formatted)', type: 'string' },
   ],
-  run: async (inputs) => getWalletBalance(inputs),
+  run: async (inputs) => getWalletBalance({ ...inputs, chainId: resolveChainId(inputs) }),
+})
+
+// ─── Poll wallet balance (trigger) ─────────────────────────────────────────
+// Fires on an interval with current balance; use for backfill or periodic wallet amount.
+
+registerBlock({
+  type: 'pollWalletBalance',
+  label: 'Poll wallet balance',
+  description: 'Trigger on an interval with the wallet balance (native or ERC20). Leave wallet empty to use the connected wallet.',
+  category: 'trigger',
+  color: 'blue',
+  icon: 'wallet',
+  inputs: [
+    { name: 'wallet', label: 'Wallet address', type: 'address', placeholder: '0x... or leave empty for connected', allowVariable: true },
+    { name: 'token', label: 'Token (optional)', type: 'address', placeholder: 'Leave empty for native ETH' },
+    {
+      name: 'chainIdSource',
+      label: 'Chain',
+      type: 'select',
+      options: [...CHAIN_ID_OPTIONS],
+      optionLabels: CHAIN_ID_OPTION_LABELS,
+      defaultValue: '1',
+    },
+    { name: 'chainIdCustom', label: 'Chain ID (custom)', type: 'number', placeholder: 'e.g. 1', defaultValue: '1' },
+    { name: 'rpcUrl', label: 'RPC URL (optional)', type: 'text', placeholder: 'Leave empty for default' },
+    { name: 'intervalSeconds', label: 'Poll interval (seconds)', type: 'number', placeholder: '60', defaultValue: '60', min: 5, max: 86400 },
+  ],
+  getVisibleInputs: (inputs) => {
+    const base = ['wallet', 'token', 'chainIdSource', 'rpcUrl', 'intervalSeconds']
+    if ((inputs.chainIdSource ?? '').trim() === '') base.push('chainIdCustom')
+    return base
+  },
+  outputs: [
+    { name: 'balance', label: 'Balance (raw)', type: 'string' },
+    { name: 'balanceFormatted', label: 'Balance (formatted)', type: 'string' },
+    { name: 'wallet', label: 'Wallet address', type: 'string' },
+    { name: 'chainId', label: 'Chain ID', type: 'string' },
+    { name: 'timestamp', label: 'Timestamp', type: 'string' },
+  ],
+  run: async (inputs) => getWalletBalance({ ...inputs, chainId: resolveChainId(inputs) }),
+  subscribe: (inputs, onTrigger, context) => {
+    const seconds = Math.max(5, Math.min(86400, Number(inputs.intervalSeconds) || 60))
+    const ms = Math.round(seconds * 1000)
+    const chainId = resolveChainId(inputs)
+    const resolveWallet = (): string => {
+      const w = (inputs.wallet ?? '').trim()
+      if (w) return w
+      return (context?.walletAddress ?? '').trim()
+    }
+    const tick = async () => {
+      const wallet = resolveWallet()
+      const runInputs = { ...inputs, wallet, chainId }
+      try {
+        const result = await getWalletBalance(runInputs)
+        onTrigger({
+          ...result,
+          wallet: wallet || '',
+          chainId,
+          timestamp: String(Date.now()),
+        })
+      } catch (e) {
+        console.warn('[pollWalletBalance] getWalletBalance failed:', e)
+        onTrigger({
+          balance: '0',
+          balanceFormatted: '0',
+          wallet: wallet || '',
+          chainId,
+          timestamp: String(Date.now()),
+        })
+      }
+    }
+    tick()
+    const id = setInterval(tick, ms)
+    return () => clearInterval(id)
+  },
 })
 
 // ─── Send Notification: Discord ───────────────────────────────────────────
@@ -1744,42 +1930,44 @@ registerBlock({
 // })
 
 // ─── Log / Debug ──────────────────────────────────────────────────────────
-// registerBlock({
-//   type: 'logDebug',
-//   label: 'Log / Debug',
-//   description: 'Log inputs to the browser console and pass through. Useful for debugging flows.',
-//   category: 'action',
-//   color: 'amber',
-//   icon: 'bug',
-//   inputs: [
-//     { name: 'passthrough', label: 'Pass through value', type: 'text', placeholder: 'Optional', allowVariable: true },
-//   ],
-//   outputs: [
-//     { name: 'out', label: 'Out', type: 'string' },
-//   ],
-//   run: async (inputs) => logDebug(inputs),
-// })
+
+registerBlock({
+  type: 'logDebug',
+  label: 'Log / Debug',
+  description: 'Log inputs to the browser console and pass through. Useful for debugging flows.',
+  category: 'action',
+  color: 'amber',
+  icon: 'bug',
+  inputs: [
+    { name: 'passthrough', label: 'Pass through value', type: 'text', placeholder: 'Optional', allowVariable: true },
+  ],
+  outputs: [
+    { name: 'out', label: 'Out', type: 'string' },
+  ],
+  run: async (inputs) => logDebug(inputs),
+})
 
 // ─── Numeric range filter ─────────────────────────────────────────────────
-// registerBlock({
-//   type: 'numericRangeFilter',
-//   label: 'Numeric Range',
-//   description: 'Pass only when the connected value is within min and max (inclusive).',
-//   category: 'filter',
-//   color: 'yellow',
-//   icon: 'filter',
-//   inputs: [
-//     { name: 'value', label: 'Value', type: 'number', allowVariable: true, accepts: ['number', 'string'] },
-//     { name: 'min', label: 'Min', type: 'number', defaultValue: '0' },
-//     { name: 'max', label: 'Max', type: 'number', defaultValue: '100' },
-//   ],
-//   outputs: [
-//     { name: 'passed', label: 'Passed', type: 'string' },
-//     { name: 'value', label: 'Value', type: 'string' },
-//     { name: 'inRange', label: 'In Range', type: 'string' },
-//   ],
-//   run: async (inputs) => numericRangeFilter(inputs),
-// })
+
+registerBlock({
+  type: 'numericRangeFilter',
+  label: 'Numeric Range',
+  description: 'Pass only when the connected value is within min and max (inclusive).',
+  category: 'filter',
+  color: 'yellow',
+  icon: 'filter',
+  inputs: [
+    { name: 'value', label: 'Value', type: 'number', allowVariable: true, accepts: ['number', 'string'] },
+    { name: 'min', label: 'Min', type: 'number', defaultValue: '0' },
+    { name: 'max', label: 'Max', type: 'number', defaultValue: '100' },
+  ],
+  outputs: [
+    { name: 'passed', label: 'Passed', type: 'string' },
+    { name: 'value', label: 'Value', type: 'string' },
+    { name: 'inRange', label: 'In Range', type: 'string' },
+  ],
+  run: async (inputs) => numericRangeFilter(inputs),
+})
 
 // ─── String match filter ─────────────────────────────────────────────────
 // registerBlock({
@@ -1803,24 +1991,25 @@ registerBlock({
 // })
 
 // ─── Rate limit / debounce ────────────────────────────────────────────────
-// registerBlock({
-//   type: 'rateLimitFilter',
-//   label: 'Rate Limit',
-//   description: 'Pass only when at least N seconds have passed since last pass (per agent).',
-//   category: 'filter',
-//   color: 'amber',
-//   icon: 'clock',
-//   inputs: [
-//     { name: 'intervalSeconds', label: 'Min interval (seconds)', type: 'number', defaultValue: '60', min: 1, max: 86400 },
-//   ],
-//   outputs: [
-//     { name: 'passed', label: 'Passed', type: 'string' },
-//     { name: 'elapsed', label: 'Elapsed since last', type: 'string' },
-//     { name: 'nextAllowedIn', label: 'Next allowed in (s)', type: 'string' },
-//   ],
-//   run: async (inputs, context) =>
-//     rateLimitFilter(inputs, context?.nodeId ?? '', context?.agentId),
-// })
+
+registerBlock({
+  type: 'rateLimitFilter',
+  label: 'Rate Limit',
+  description: 'Pass only when at least N seconds have passed since last pass (per agent).',
+  category: 'filter',
+  color: 'amber',
+  icon: 'clock',
+  inputs: [
+    { name: 'intervalSeconds', label: 'Min interval (seconds)', type: 'number', defaultValue: '60', min: 1, max: 86400 },
+  ],
+  outputs: [
+    { name: 'passed', label: 'Passed', type: 'string' },
+    { name: 'elapsed', label: 'Elapsed since last', type: 'string' },
+    { name: 'nextAllowedIn', label: 'Next allowed in (s)', type: 'string' },
+  ],
+  run: async (inputs, context) =>
+    rateLimitFilter(inputs, context?.nodeId ?? '', context?.agentId),
+})
 
 // ─── Delay (sleep) ────────────────────────────────────────────────────────
 
@@ -1859,25 +2048,50 @@ registerBlock({
 // })
 
 // ─── Merge ────────────────────────────────────────────────────────────────
-// registerBlock({
-//   type: 'merge',
-//   label: 'Merge',
-//   description: 'Combine multiple inputs into one output. Connect values to input handles or leave empty.',
-//   category: 'action',
-//   color: 'violet',
-//   icon: 'merge',
-//   inputs: [
-//     { name: 'mode', label: 'Mode', type: 'select', options: ['first', 'concat', 'json'], defaultValue: 'first' },
-//     { name: 'separator', label: 'Separator (for concat)', type: 'text', defaultValue: ', ' },
-//     { name: 'in1', label: 'In 1', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
-//     { name: 'in2', label: 'In 2', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
-//     { name: 'in3', label: 'In 3', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
-//   ],
-//   outputs: [
-//     { name: 'out', label: 'Out', type: 'string' },
-//   ],
-//   run: async (inputs) => mergeOutputs(inputs),
-// })
+
+registerBlock({
+  type: 'merge',
+  label: 'Merge',
+  description: 'Combine multiple inputs into one output. Connect values to input handles or leave empty. Mode: first non-empty, concat with separator, or JSON array.',
+  category: 'action',
+  color: 'violet',
+  icon: 'merge',
+  inputs: [
+    { name: 'mode', label: 'Mode', type: 'select', options: ['first', 'concat', 'json'], defaultValue: 'first' },
+    { name: 'separator', label: 'Separator (for concat)', type: 'text', defaultValue: ', ' },
+    { name: 'in1', label: 'In 1', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+    { name: 'in2', label: 'In 2', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+    { name: 'in3', label: 'In 3', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+  ],
+  outputs: [
+    { name: 'out', label: 'Out', type: 'string' },
+  ],
+  run: async (inputs) => mergeOutputs(inputs),
+})
+
+// ─── Template string ───────────────────────────────────────
+
+registerBlock({
+  type: 'templateString',
+  label: 'Template string',
+  description: 'Build a string from a template. Use {{var1}}, {{var2}}, {{var3}} and connect values, or use {{nodeId.outputName}} (resolved by the flow).',
+  category: 'action',
+  color: 'yellow',
+  icon: 'braces',
+  inputs: [
+    { name: 'template', label: 'Template', type: 'textarea', placeholder: 'e.g. Price: {{var1}}, Size: {{var2}}', rows: 2, allowVariable: true },
+    { name: 'var1', label: 'Var 1', type: 'text', placeholder: 'Connect or leave empty', allowVariable: true, showHandleWhenEmpty: true },
+    { name: 'var2', label: 'Var 2', type: 'text', placeholder: 'Connect or leave empty', allowVariable: true, showHandleWhenEmpty: true },
+    { name: 'var3', label: 'Var 3', type: 'text', placeholder: 'Connect or leave empty', allowVariable: true, showHandleWhenEmpty: true },
+  ],
+  outputs: [
+    { name: 'out', label: 'Out', type: 'string' },
+  ],
+  run: async (inputs): Promise<Record<string, string>> => {
+    const out = templateString(inputs.template ?? '', inputs, new Set(['template']))
+    return { out }
+  },
+})
 
 // ─── Constant ─────────────────────────────────────────────────────────────
 

@@ -8,21 +8,21 @@ export type TriggerPayload = {
   outputs: Record<string, string>
 }
 
-/** Resolve {{nodeId.outputName}} from outputs map. */
+/** Resolve all {{nodeId.outputName}} placeholders in a string from outputs map. */
 function resolveVariables(
   value: string,
   outputs: Map<string, Record<string, string>>,
 ): string {
-  const match = value.match(/^\{\{(.+)\}\}$/)
-  if (!match) return value
-  const ref = match[1].trim()
-  const dot = ref.indexOf('.')
-  if (dot < 0) return value
-  const nodeId = ref.slice(0, dot)
-  const outputName = ref.slice(dot + 1)
-  const nodeOutputs = outputs.get(nodeId)
-  if (!nodeOutputs) return value
-  return nodeOutputs[outputName] ?? value
+  return value.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_, ref) => {
+    const refTrim = ref.trim()
+    const dot = refTrim.indexOf('.')
+    if (dot < 0) return `{{${ref}}}`
+    const nodeId = refTrim.slice(0, dot).trim()
+    const outputName = refTrim.slice(dot + 1).trim()
+    const nodeOutputs = outputs.get(nodeId)
+    if (!nodeOutputs) return `{{${ref}}}`
+    return nodeOutputs[outputName] ?? `{{${ref}}}`
+  })
 }
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/
@@ -43,6 +43,9 @@ export type SignTypedDataParams = {
   message: Record<string, unknown>
 }
 
+/** Result of adding the app server signer to the user's wallet (trade on my behalf). */
+export type AddServerSignerResult = { success: boolean; error?: string }
+
 export type RunContext = {
   /** Connected wallet address (e.g. from Privy). Used when swap block's Wallet Address is empty. */
   walletAddress?: string | null
@@ -50,6 +53,10 @@ export type RunContext = {
   sendTransaction?: ((tx: SwapTx) => Promise<string>) | null
   /** Sign EIP-712 typed data (e.g. UniswapX permit). When provided, swap block can submit gasless orders. */
   signTypedData?: ((params: SignTypedDataParams) => Promise<string>) | null
+  /** Add app server signer to user's embedded wallet so the app can trade on their behalf when offline. */
+  addServerSigner?: (() => Promise<AddServerSignerResult>) | null
+  /** Execute swap on server (no wallet popup). When set, swap block uses this instead of sendTransaction. */
+  sendTransactionServer?: ((params: { walletAddress: string; fromToken: string; toToken: string; amount: string; amountDenomination: string }) => Promise<{ txHash: string; amountOut: string; gasUsed: string }>) | null
   /** Current node id (for blocks that need identity, e.g. rate limit). */
   nodeId?: string
   /** Current agent id (for blocks that need identity, e.g. rate limit). */
@@ -149,7 +156,7 @@ export async function runFromNode(
     if (!nodeDef) continue
 
     const inputs = resolveInputs(node, nodeDef, outputs)
-    if ((nodeDef.type === 'swap' || nodeDef.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
+    if ((nodeDef.type === 'swap' || nodeDef.type === 'getQuote' || nodeDef.type === 'swapOnBehalf') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
       inputs.swapper = context.walletAddress
     }
     if (nodeDef.type === 'getWalletBalance' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress) && !inputs.wallet?.trim()) {
@@ -169,7 +176,7 @@ export async function runFromNode(
   }
 
   const targetInputs = resolveInputs(targetNode, def, outputs)
-  if ((def.type === 'swap' || def.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
+  if ((def.type === 'swap' || def.type === 'getQuote' || def.type === 'swapOnBehalf') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
     targetInputs.swapper = context.walletAddress
   }
   if (def.type === 'getWalletBalance' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress) && !targetInputs.wallet?.trim()) {
@@ -227,16 +234,13 @@ function resolveInputs(
           typeof srcOuts === 'object'
         const outName = useFullObjectForData ? 'data' : binding.outputName
         const connectedVal = useFullObjectForData ? JSON.stringify(srcOuts) : (srcOuts[outName] ?? val)
-        if (storedVal.trim() !== '') {
-          val = storedVal
+        // When an input source is connected, use its value (connection wins over typed value)
+        if (field.type === 'number' && connectedVal) {
+          const n = Number(connectedVal)
+          if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
+          else val = connectedVal
         } else {
-          if (field.type === 'number' && connectedVal) {
-            const n = Number(connectedVal)
-            if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
-            else val = connectedVal
-          } else {
-            val = connectedVal
-          }
+          val = connectedVal
         }
       }
     }
@@ -324,16 +328,13 @@ export async function runDownstreamGraph(
           const connectedVal = useFullObjectForData
             ? JSON.stringify(srcOuts)
             : (srcOuts[outName] ?? val)
-          if (storedVal.trim() !== '') {
-            val = storedVal
+          // When an input source is connected, use its value (connection wins over typed value)
+          if (field.type === 'number' && connectedVal) {
+            const n = Number(connectedVal)
+            if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
+            else val = connectedVal
           } else {
-            if (field.type === 'number' && connectedVal) {
-              const n = Number(connectedVal)
-              if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
-              else val = connectedVal
-            } else {
-              val = connectedVal
-            }
+            val = connectedVal
           }
         }
       }
@@ -341,7 +342,7 @@ export async function runDownstreamGraph(
     }
 
     // Swap and Get Quote blocks: always use connected wallet (no explicit wallet input)
-    if ((def.type === 'swap' || def.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
+    if ((def.type === 'swap' || def.type === 'getQuote' || def.type === 'swapOnBehalf') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
       inputs.swapper = context.walletAddress
     }
     if (def.type === 'getWalletBalance' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress) && !inputs.wallet?.trim()) {

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Braces, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, PanelLeftClose, PanelLeft, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
+import { Braces, Calculator, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, PanelLeftClose, PanelLeft, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
 import { useState, useMemo, useCallback, useRef, useEffect, type DragEvent } from 'react'
 import {
   getBlocksByCategory,
@@ -256,7 +256,8 @@ export default function Sidebar() {
     const hasActions = filterBlocks(getBlocksByCategory('action'), query).length > 0
     const hasFilters = filterBlocks(getBlocksByCategory('filter'), query).length > 0
     const hasDisplay = filterBlocks(getBlocksByCategory('display'), query).length > 0
-    return !hasTriggers && !hasActions && !hasFilters && !hasDisplay
+    const hasMath = filterBlocks(getBlocksByCategory('math'), query).length > 0
+    return !hasTriggers && !hasActions && !hasFilters && !hasDisplay && !hasMath
   }, [query])
   const noVariables = filteredVariables.length === 0 && variables.length === 0
 
@@ -348,6 +349,12 @@ export default function Sidebar() {
           title="Filters"
           icon={<Filter size={11} />}
           category="filter"
+          query={query}
+        />
+        <CollapsibleCategorySection
+          title="Math"
+          icon={<Calculator size={11} />}
+          category="math"
           query={query}
         />
         <CollapsibleCategorySection

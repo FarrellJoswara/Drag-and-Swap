@@ -300,10 +300,25 @@ const UNISWAPX_ROUTINGS = new Set(['DUTCH_V2', 'DUTCH_V3', 'PRIORITY', 'LIMIT_OR
 export type SwapContext = {
   sendTransaction?: ((tx: { to: string; from: string; data: string; value: string; chainId: number; gasLimit?: string }) => Promise<string>) | null
   signTypedData?: ((params: { domain: object; types: Record<string, Array<{ name: string; type: string }>>; primaryType: string; message: Record<string, unknown> }) => Promise<string>) | null
+  /** When set, swap is executed on the server (no wallet approval popup). */
+  sendTransactionServer?: ((params: { walletAddress: string; fromToken: string; toToken: string; amount: string; amountDenomination: string }) => Promise<{ txHash: string; amountOut: string; gasUsed: string }>) | null
 }
 
 export async function swap(inputs: Record<string, string>, context?: SwapContext) {
   const params = await blockInputsToApiParams(inputs)
+
+  // Server signer path: execute swap on backend (no popup). Only when block opts in (e.g. "Trade on my behalf").
+  const useServer = inputs.useServerSigner === 'true'
+  if (useServer && context?.sendTransactionServer && params.swapper && ADDRESS_REGEX.test(params.swapper)) {
+    const result = await context.sendTransactionServer({
+      walletAddress: params.swapper,
+      fromToken: inputs.fromToken ?? 'ETH',
+      toToken: inputs.toToken ?? 'USDC',
+      amount: inputs.amount ?? '1',
+      amountDenomination: inputs.amountDenomination ?? 'Token',
+    })
+    return result
+  }
 
   if (
     params.tokenIn.toLowerCase() !== NATIVE_ETH.toLowerCase() &&

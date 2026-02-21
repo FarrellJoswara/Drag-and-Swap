@@ -6,6 +6,8 @@ export interface SelectWithOptionTooltipsProps {
   value: string
   options: string[]
   optionDescriptions?: Record<string, string>
+  /** Optional map of option value -> display label (e.g. { '1': 'Ethereum' }) */
+  optionLabels?: Record<string, string>
   onChange: (value: string) => void
   disabled?: boolean
   /** Tailwind class for focus ring (e.g. from focusColorClass[color]) */
@@ -17,10 +19,15 @@ export interface SelectWithOptionTooltipsProps {
 const defaultBase =
   'w-full bg-slate-900 border border-slate-700 rounded-md text-xs text-slate-200 placeholder-slate-600 focus:outline-none transition-all'
 
+function getOptionLabel(opt: string, optionLabels?: Record<string, string>): string {
+  return (optionLabels && optionLabels[opt]) ?? opt
+}
+
 export default function SelectWithOptionTooltips({
   value,
   options,
   optionDescriptions = {},
+  optionLabels,
   onChange,
   disabled = false,
   focusClass = 'focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30',
@@ -51,7 +58,9 @@ export default function SelectWithOptionTooltips({
     return () => document.removeEventListener('mousedown', handle)
   }, [open])
 
-  const selectedLabel = options.includes(value) ? value : (value || options[0]) ?? ''
+  const selectedLabel = options.includes(value)
+    ? getOptionLabel(value, optionLabels)
+    : (value ? value : getOptionLabel(options[0] ?? '', optionLabels))
 
   const portalContent =
     typeof document !== 'undefined' &&
@@ -88,7 +97,7 @@ export default function SelectWithOptionTooltips({
                   setOpen(false)
                 }}
               >
-                <span className="block truncate">{opt}</span>
+                <span className="block truncate">{getOptionLabel(opt, optionLabels)}</span>
                 {desc && (
                   <span className="block text-[10px] text-slate-500 truncate mt-0.5">{desc}</span>
                 )}

@@ -7,6 +7,8 @@ import { useActiveAgentRunners } from './hooks/useActiveAgentRunners'
 import { useWalletAddress } from './hooks/useWalletAddress'
 import { useSendTransaction } from './hooks/useSendTransaction'
 import { useSignTypedData } from './hooks/useSignTypedData'
+import { useAddServerSigner } from './hooks/useAddServerSigner'
+import { executeSwapOnBehalf } from './services/executeSwapOnBehalf'
 import { DisplayValueProvider } from './contexts/DisplayValueContext'
 import { CurrentFlowProvider } from './contexts/CurrentFlowContext'
 import { GraphSeriesProvider } from './contexts/GraphSeriesContext'
@@ -16,9 +18,16 @@ function AgentRunners() {
   const walletAddress = useWalletAddress()
   const sendTransaction = useSendTransaction()
   const signTypedData = useSignTypedData()
+  const { addServerSigner } = useAddServerSigner()
   useActiveAgentRunners(agents, (payload) => {
     console.log('[Agent trigger]', payload)
-  }, { walletAddress: walletAddress ?? undefined, sendTransaction: sendTransaction ?? undefined, signTypedData: signTypedData ?? undefined })
+  }, {
+    walletAddress: walletAddress ?? undefined,
+    sendTransaction: sendTransaction ?? undefined,
+    signTypedData: signTypedData ?? undefined,
+    addServerSigner: addServerSigner ?? undefined,
+    sendTransactionServer: executeSwapOnBehalf,
+  })
   return null
 }
 

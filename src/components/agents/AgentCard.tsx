@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Power, PowerOff, Pencil, Trash2 } from 'lucide-react'
+import { Power, PowerOff, Pencil, Trash2, Settings } from 'lucide-react'
 import type { DeployedAgent } from '../../types/agent'
 
 interface AgentCardProps {
@@ -8,6 +8,7 @@ interface AgentCardProps {
   onToggleActive: (id: string) => void
   onRemove: (id: string) => void
   onRename: (id: string, name: string) => void
+  onOpenSettings: () => void
   editPath: string
 }
 
@@ -26,6 +27,7 @@ export default function AgentCard({
   onToggleActive,
   onRemove,
   onRename,
+  onOpenSettings,
   editPath,
 }: AgentCardProps) {
   const [isEditing, setIsEditing] = useState(false)
@@ -120,6 +122,17 @@ export default function AgentCard({
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
+                onOpenSettings()
+              }}
+              title="Agent settings"
+              className="flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 transition-all duration-150 opacity-0 group-hover:opacity-100"
+            >
+              <Settings size={14} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
                 onToggleActive(agent.id)
               }}
               title={agent.isActive ? 'Deactivate' : 'Activate'}
@@ -153,12 +166,17 @@ export default function AgentCard({
           </div>
         </div>
 
-        {agent.isActive && (
-          <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-800/60">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-medium text-emerald-500/90">
-              Active
-            </span>
+        {(agent.isActive || agent.allowTradeOnBehalf) && (
+          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-slate-800/60 flex-wrap">
+            {agent.isActive && (
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] font-medium text-emerald-500/90">Active</span>
+              </div>
+            )}
+            {agent.allowTradeOnBehalf && (
+              <span className="text-[10px] font-medium text-violet-400/90">Can trade on my behalf</span>
+            )}
           </div>
         )}
       </div>

@@ -201,6 +201,7 @@ function NumberInput({ field, value = '', onChange, color, suffix, onSuffixClick
 function SelectInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
   const options = field.options ?? []
+  const optionLabels = field.optionLabels
   if (field.optionDescriptions && Object.keys(field.optionDescriptions).length > 0) {
     return (
       <div className="flex flex-col gap-1">
@@ -210,6 +211,7 @@ function SelectInput({ field, value = '', onChange, color }: BlockInputProps) {
             value={value}
             options={options}
             optionDescriptions={field.optionDescriptions}
+            optionLabels={optionLabels}
             onChange={onChange}
             focusClass={focus}
             baseClass={baseInput(focus)}
@@ -229,7 +231,7 @@ function SelectInput({ field, value = '', onChange, color }: BlockInputProps) {
             className={`${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-7`}
           >
             {options.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
+              <option key={opt} value={opt}>{optionLabels?.[opt] ?? opt}</option>
             ))}
           </select>
           <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />

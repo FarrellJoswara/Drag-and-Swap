@@ -20,6 +20,8 @@ export interface DeployedAgent {
   walletAddress: string
   /** Whether the agent is currently active/running */
   isActive: boolean
+  /** If true, this agent may use the app server signer to trade on your behalf when enabled in Settings. */
+  allowTradeOnBehalf?: boolean
   deployedAt: string
   createdAt: string
 }

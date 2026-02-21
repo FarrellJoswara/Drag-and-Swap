@@ -8,9 +8,12 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "uniswap": "tsx src/services/uniswap.ts"
+    "uniswap": "tsx src/services/uniswap.ts",
+    "setup:privy-key": "node scripts/generate-privy-auth-key.mjs",
+    "setup:privy-quorum": "node scripts/register-privy-key-quorum.mjs"
   },
   "dependencies": {
+    "@privy-io/node": "^0.9.0",
     "@privy-io/react-auth": "^3.14.1",
     "@xyflow/react": "^12.10.1",
     "lucide-react": "^0.575.0",

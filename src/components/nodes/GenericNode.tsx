@@ -18,6 +18,8 @@ import { useToast } from '../ui/Toast'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
 import { useSendTransaction } from '../../hooks/useSendTransaction'
 import { useSignTypedData } from '../../hooks/useSignTypedData'
+import { useAddServerSigner } from '../../hooks/useAddServerSigner'
+import { executeSwapOnBehalf } from '../../services/executeSwapOnBehalf'
 import { useAgentId } from '../../contexts/AgentIdContext'
 import { useDisplayValue } from '../../contexts/DisplayValueContext'
 import { useGraphSeries, MULTIGRAPH_MAX_SERIES } from '../../contexts/GraphSeriesContext'
@@ -57,6 +59,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const walletAddress = useWalletAddress()
   const sendTransaction = useSendTransaction()
   const signTypedData = useSignTypedData()
+  const { addServerSigner } = useAddServerSigner()
   const agentId = useAgentId()
   const { getDisplayValue, setDisplayValue, clearDisplayValue } = useDisplayValue()
   const { getSeries, getMultigraphSeries, appendPoint, clearSeries, setPaused, getPaused } = useGraphSeries()
@@ -364,6 +367,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       walletAddress: walletAddress ?? undefined,
       sendTransaction: sendTransaction ?? undefined,
       signTypedData: signTypedData ?? undefined,
+      addServerSigner: addServerSigner ?? undefined,
+      sendTransactionServer: executeSwapOnBehalf,
       agentId: displayAgentId,
     }
     setRunLoading(true)
@@ -376,9 +381,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     } finally {
       setRunLoading(false)
     }
-  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, agentId, setDisplayValue, getPaused, appendPoint])
+  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, addServerSigner, agentId, setDisplayValue, getPaused, appendPoint])
 
-  const runDisabled = (blockType === 'swap' || blockType === 'getQuote') && !walletAddress
+  const runDisabled = (blockType === 'swap' || blockType === 'getQuote' || blockType === 'swapOnBehalf') && !walletAddress
   const runButton =
     definition.category === 'action' ? (
       <button
@@ -404,7 +409,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const mainInputNames = definition.sidePanel
     ? new Set(definition.sidePanel.mainInputNames)
     : null
-  const hiddenInputNames = (blockType === 'swap' || blockType === 'getQuote') ? new Set(['amountDenomination']) : new Set<string>()
+  const hiddenInputNames = (blockType === 'swap' || blockType === 'getQuote' || blockType === 'swapOnBehalf') ? new Set(['amountDenomination']) : new Set<string>()
   const visibleNames = definition.getVisibleInputs ? new Set(definition.getVisibleInputs(inputs)) : null
   const isVisible = (name: string) => !visibleNames || visibleNames.has(name)
   const mainInputs = mainInputNames
@@ -452,7 +457,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       </div>
     ) : null
 
-  const isSwapOrQuote = blockType === 'swap' || blockType === 'getQuote'
+  const isSwapOrQuote = blockType === 'swap' || blockType === 'getQuote' || blockType === 'swapOnBehalf'
   const amountDenomination = (inputs.amountDenomination ?? 'Token').toUpperCase()
   const amountSuffix =
     isSwapOrQuote && amountDenomination === 'USD'

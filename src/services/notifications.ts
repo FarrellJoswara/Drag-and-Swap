@@ -25,11 +25,8 @@ export async function sendTelegram(inputs: Record<string, string>): Promise<Reco
     throw new Error('Telegram: bot token and chat ID are required')
   }
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`
-  const body = JSON.stringify({ chat_id: chatId, text, parse_mode: inputs.parseMode || 'HTML' })
-  let target = url
-  if (inputs.useCorsProxy === 'true') {
-    target = CORS_PROXY + encodeURIComponent(url)
-  }
+  const body = JSON.stringify({ chat_id: chatId, text })
+  const target = CORS_PROXY + encodeURIComponent(url)
   const res = await fetch(target, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -79,11 +76,10 @@ export async function sendDiscord(inputs: Record<string, string>): Promise<Recor
 async function getTelegramUpdates(
   botToken: string,
   offset: number,
-  useCorsProxy: boolean,
 ): Promise<{ updates: TelegramMessageUpdate[]; nextOffset: number }> {
   if (!botToken.trim()) return { updates: [], nextOffset: offset }
   const url = `https://api.telegram.org/bot${botToken.trim()}/getUpdates?offset=${offset}&limit=100&timeout=0`
-  const target = useCorsProxy ? CORS_PROXY + encodeURIComponent(url) : url
+  const target = CORS_PROXY + encodeURIComponent(url)
   const res = await fetch(target, { method: 'GET' })
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }
   const updates: TelegramMessageUpdate[] = []
@@ -111,25 +107,31 @@ async function getTelegramUpdates(
   return { updates, nextOffset }
 }
 
+/** Normalize handle for comparison: strip @ and lowercase. */
+function normalizeHandle(h: string): string {
+  return (h || '').trim().replace(/^@/, '').toLowerCase()
+}
+
 /**
  * Start polling Telegram getUpdates and call onMessage for each new message.
  * Returns a cleanup function to stop polling.
  */
 export function startTelegramMessagePolling(
   botToken: string,
-  options: { useCorsProxy?: boolean; chatIdFilter?: string; pollIntervalSeconds?: number },
+  options: { chatIdFilter?: string; fromHandleFilter?: string; pollIntervalSeconds?: number },
   onMessage: (out: Record<string, string>) => void,
 ): () => void {
-  const useCorsProxy = options.useCorsProxy !== false
   const chatIdFilter = (options.chatIdFilter ?? '').trim()
+  const fromHandleFilter = normalizeHandle(options.fromHandleFilter ?? '')
   const intervalMs = Math.max(2000, Math.min(60000, (options.pollIntervalSeconds ?? 5) * 1000))
   let offset = 0
   const id = setInterval(async () => {
     try {
-      const { updates, nextOffset } = await getTelegramUpdates(botToken, offset, useCorsProxy)
+      const { updates, nextOffset } = await getTelegramUpdates(botToken, offset)
       offset = nextOffset
       for (const u of updates) {
         if (chatIdFilter && u.chatId !== chatIdFilter) continue
+        if (fromHandleFilter && normalizeHandle(u.username) !== fromHandleFilter) continue
         onMessage({
           messageText: u.messageText,
           chatId: u.chatId,

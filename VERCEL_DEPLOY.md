@@ -27,7 +27,11 @@ In the Vercel dashboard:
 | `VITE_QUICKNODE_HYPERLIQUID_INFO_URL` | Optional | Defaults to public API if unset |
 | `VITE_DEBUG_INGEST_URL` | Optional | Debug log ingest |
 | `VITE_DEBUG_SESSION_ID` | Optional | Debug session id |
+| `PRIVY_APP_ID` | For server swap | Same as VITE_PRIVY_APP_ID (server-only) |
+| `PRIVY_APP_SECRET` | For server swap | Privy app secret from Dashboard |
+| `PRIVY_AUTH_PRIVATE_KEY` | For server swap | App authorization private key (base64 PKCS8 or PEM) for "Trade on my behalf" without popup |
 
+The `/api/execute-swap-on-behalf` serverless function uses the last three so the app can execute swaps on behalf of users (no approval popup) when they have enabled "Allow app to trade on my behalf".
 Names must match exactly (including `VITE_` prefix) so Vite injects them at build time.
 
 ## 3. Redeploy after adding variables

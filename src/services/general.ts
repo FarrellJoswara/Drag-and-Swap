@@ -245,6 +245,54 @@ export function mergeOutputs(inputs: Record<string, string>): Record<string, str
   return { out: JSON.stringify(values) }
 }
 
+// ─── Math operation ─────────────────────────────────────────
+
+export type MathOp = 'add' | 'subtract' | 'multiply' | 'divide' | 'min' | 'max' | 'modulo'
+
+/**
+ * Apply a binary math operation to two numeric strings. Returns result as string or '0' on invalid/division by zero.
+ */
+export function mathOperation(a: string, b: string, op: string): string {
+  const x = Number(String(a ?? '').trim())
+  const y = Number(String(b ?? '').trim())
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return '0'
+  const opNorm = (op ?? 'add').toLowerCase()
+  let result: number
+  switch (opNorm) {
+    case 'add':
+    case '+':
+      result = x + y
+      break
+    case 'subtract':
+    case '-':
+      result = x - y
+      break
+    case 'multiply':
+    case '*':
+      result = x * y
+      break
+    case 'divide':
+    case '/':
+      if (y === 0) return '0'
+      result = x / y
+      break
+    case 'min':
+      result = Math.min(x, y)
+      break
+    case 'max':
+      result = Math.max(x, y)
+      break
+    case 'modulo':
+    case '%':
+      if (y === 0) return '0'
+      result = x % y
+      break
+    default:
+      result = x + y
+  }
+  return Number.isFinite(result) ? String(result) : '0'
+}
+
 // ─── Price change % ─────────────────────────────────────────
 
 /**
@@ -325,6 +373,22 @@ export function transformDataType(value: string, targetType: string): string {
     default:
       return raw
   }
+}
+
+// ─── Template string ───────────────────────────────────────
+
+/**
+ * Replace {{key}} in template with inputs[key] for each key in inputs. Keys template and reserved names can be excluded.
+ */
+export function templateString(template: string, inputs: Record<string, string>, skipKeys?: Set<string>): string {
+  let out = String(template ?? '').trim()
+  const skip = skipKeys ?? new Set(['template'])
+  for (const [key, value] of Object.entries(inputs)) {
+    if (skip.has(key) || value == null) continue
+    const re = new RegExp('\\{\\{\\s*' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}\\}', 'g')
+    out = out.replace(re, String(value))
+  }
+  return out
 }
 
 // ─── Log / Debug ───────────────────────────────────────────

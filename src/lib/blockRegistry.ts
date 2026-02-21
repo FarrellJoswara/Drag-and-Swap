@@ -26,6 +26,7 @@ import {
   ArrowDownUp,
   Percent,
   Repeat,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -73,6 +74,8 @@ export interface InputField {
   accepts?: string[]
   /** Optional map of option value -> description for select dropdowns (hover tooltips) */
   optionDescriptions?: Record<string, string>
+  /** Optional map of option value -> display label (e.g. { '1': 'Ethereum', '8453': 'Base' }) */
+  optionLabels?: Record<string, string>
   /** When set (e.g. 'valueToFilter'), this input gets a "From source" dropdown from the block connected to the named input; no edge on this input */
   sourceOutputsFrom?: string
   /** When true, the connection handle is only shown when the input value is empty (e.g. General Comparator top/bottom) */
@@ -86,9 +89,9 @@ export interface OutputField {
   type?: 'string' | 'number' | 'address' | 'json' | 'boolean'
 }
 
-export type BlockCategory = 'trigger' | 'action' | 'filter' | 'display'
+export type BlockCategory = 'trigger' | 'action' | 'filter' | 'display' | 'math'
 export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose' | 'yellow'
-export type BlockService = 'quicknode' | 'hyperliquid' | 'uniswap'
+export type BlockService = 'quicknode' | 'hyperliquid' | 'uniswap' | 'privy'
 
 /** Called when an interrupt-based trigger fires. */
 export type TriggerCallback = (outputs: Record<string, string>) => void
@@ -225,6 +228,7 @@ const iconMap: Record<string, LucideIcon> = {
   'arrow-down-up': ArrowDownUp,
   percent: Percent,
   repeat: Repeat,
+  'shield-check': ShieldCheck,
 }
 
 export function getBlockIcon(name: string): LucideIcon {

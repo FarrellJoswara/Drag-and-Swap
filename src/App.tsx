@@ -495,8 +495,16 @@ export default function App() {
       }
 
       setNodes((nds) => [...nds, newNode])
+
+      // Warn when adding the "Trade on my behalf" block (uses connected wallet)
+      if (blockType === 'swapOnBehalf') {
+        toast(
+          'This block executes swaps using your connected wallet. Only use in agents you trust.',
+          'warning',
+        )
+      }
     },
-    [setNodes, takeSnapshot],
+    [setNodes, takeSnapshot, toast],
   )
 
   const onNodeDragStart = useCallback(() => {
