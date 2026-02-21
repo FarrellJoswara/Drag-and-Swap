@@ -117,7 +117,7 @@ async function getTelegramUpdates(
     data = (await apiRes.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }
   } else {
     // Fallback: CORS proxy (for local dev when /api is not available)
-    const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&limit=100&timeout=30`
+    const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&limit=100&timeout=50`
     const target = useCorsProxy ? withCorsProxy(url) : url
     const res = await fetch(target, { method: 'GET' })
     data = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }

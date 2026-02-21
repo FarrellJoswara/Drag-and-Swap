@@ -30,7 +30,7 @@ export default async function handler(request: Request) {
     )
   }
 
-  const url = `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&limit=100&timeout=30`
+  const url = `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&limit=100&timeout=50`
   const res = await fetch(url, { method: 'GET' })
   const data = await res.json().catch(() => ({}))
   return new Response(JSON.stringify(data), {

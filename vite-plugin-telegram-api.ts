@@ -66,7 +66,7 @@ export function telegramApiPlugin(): Plugin {
             return
           }
           const tgRes = await fetch(
-            `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&limit=100&timeout=30`,
+            `https://api.telegram.org/bot${botToken}/getUpdates?offset=${offset}&limit=100&timeout=50`,
             { method: 'GET' }
           )
           const data = await tgRes.json().catch(() => ({}))

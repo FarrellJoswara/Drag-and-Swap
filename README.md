@@ -1,77 +1,68 @@
-# React + TypeScript + Vite
+# Drag-and-Swap
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A visual agent builder for crypto and trading. Build flows by dragging blocks onto a canvas, connecting them, and running agents that react to triggers (Hyperliquid streams, Telegram, timers) and execute actions (swaps, notifications, etc.).
 
-## Hyperliquid triggers
+## Overview
 
-Order fill alert, Filter by user, TWAP fill notifier, Liquidation alert, and the other Hyperliquid stream blocks are **standalone triggers**: they subscribe to the stream themselves and do not need a separate "Hyperliquid Stream" block. You can remove any Hyperliquid Stream node that was only used to feed these blocks. Edges from a Hyperliquid Stream into these blocks have no effect.
+- **Visual flow editor** — React Flow canvas with drag-and-drop blocks
+- **Triggers** — Hyperliquid streams, Telegram messages, time loops, webhooks
+- **Actions** — Uniswap swaps, Telegram/Discord notifications, wallet balance checks
+- **Logic** — Comparators, delays, math, filters, rate limiting
 
-Currently, two official plugins are available:
+## Uniswap
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Swaps use the [Uniswap Trading API](https://trade-api.gateway.uniswap.org/v1):
 
-## React Compiler
+- **Quote + Swap** — Get a quote, then execute via the connected wallet (Privy)
+- **Chains** — Ethereum, Base, Arbitrum, Optimism, Polygon
+- **Server signer** — Optional "trade on my behalf" via Privy key quorum; runs swaps without a wallet popup when the user has approved the app (`/api/execute-swap-on-behalf`)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Requires `VITE_QUICKNODE_RPC_URL` for quotes and token price.
 
-## Expanding the ESLint configuration
+## QuickNode Hypercore Streaming
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Hyperliquid blocks use [QuickNode Hypercore](https://www.quicknode.com/) for real-time WebSocket streaming:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- **Stream types** — Trades, orders, book updates, TWAP, events, writer actions
+- **Filters** — By coin, side, user, liquidation, etc.
+- **Standalone triggers** — Order fill alert, liquidation alert, TWAP fill notifier, Filter by user — each subscribes directly; no separate Hyperliquid Stream block needed
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Requires `VITE_QUICKNODE_HYPERLIQUID_WS_URL` (and optionally `VITE_QUICKNODE_HYPERLIQUID_HTTP_URL` for historical/info). The WSS URL is normalized to `/hypercore/ws` for QuickNode endpoints.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Other Features
+
+- **Telegram** — Get Telegram (message trigger) and Send Telegram; uses server proxy on Vercel or Vite plugin locally
+- **Privy** — Wallet auth; optional server signer for gasless/automatic swaps
+- **Deployment** — Vercel; live at [drag-and-swap.vercel.app](https://drag-and-swap.vercel.app)
+
+## Setup
+
+1. Copy `.env.example` to `.env.local`
+2. Set `VITE_PRIVY_APP_ID` (required for wallet)
+3. For Uniswap: `VITE_QUICKNODE_RPC_URL`
+4. For Hyperliquid: `VITE_QUICKNODE_HYPERLIQUID_WS_URL`
+5. For Telegram: `VITE_TELEGRAM_BOT_TOKEN`
+
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Scripts
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+| Script                       | Description                                          |
+| ---------------------------- | ---------------------------------------------------- |
+| `npm run dev`                | Start Vite dev server (Telegram API proxied locally) |
+| `npm run dev:full`           | Vercel dev (full serverless API)                     |
+| `npm run build`              | TypeScript + Vite build                              |
+| `npm run setup:privy-quorum` | Register key quorum for server signer                |
+
+
+## Screenshots
+
+See the `[screenshots/](./screenshots/)` directory.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
