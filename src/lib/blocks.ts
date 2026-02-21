@@ -93,6 +93,7 @@ import {
   generalComparator,
   delay,
   transformDataType,
+  priceChangePercent,
   // numericRangeFilter,
   // stringMatchFilter,
   // rateLimitFilter,
@@ -609,7 +610,7 @@ registerBlock({
     subscribeReskinnedStream('writerActionMonitor', 'writer_actions', inputs, onTrigger, context),
 })
 
-// ─── Hybrid stream triggers (filter in run(); subscribe to trades) ───
+// ─── Hybrid Hyperliquid triggers (filter in run(); subscribe to trades) ───
 
 registerBlock({
   type: 'largeTradeAlert',
@@ -1096,6 +1097,58 @@ registerBlock({
   },
 })
 
+// ─── Live Token Prices (3 coins for Multigraph) ───────────
+
+registerBlock({
+  type: 'liveTokenPrices',
+  label: 'Live Token Prices (3)',
+  description: 'Poll 3 token mid prices at an interval. Use with Multigraph to plot BTC, ETH, SOL (or any 3).',
+  category: 'trigger',
+  service: 'hyperliquid',
+  color: 'emerald',
+  icon: 'trending-up',
+  inputs: [
+    { name: 'coin1', label: 'Token 1', type: 'tokenSelect', tokens: LIVE_PRICE_TOKENS, defaultValue: 'BTC' },
+    { name: 'coin2', label: 'Token 2', type: 'tokenSelect', tokens: LIVE_PRICE_TOKENS, defaultValue: 'ETH' },
+    { name: 'coin3', label: 'Token 3', type: 'tokenSelect', tokens: LIVE_PRICE_TOKENS, defaultValue: 'SOL' },
+    { name: 'intervalSeconds', label: 'Interval (seconds)', type: 'number', placeholder: '1', defaultValue: '1', min: 0.5, max: 3600 },
+  ],
+  outputs: [
+    { name: 'price1', label: 'Price 1', type: 'number' },
+    { name: 'price2', label: 'Price 2', type: 'number' },
+    { name: 'price3', label: 'Price 3', type: 'number' },
+    { name: 'timestamp', label: 'Timestamp', type: 'string' },
+  ],
+  run: async (inputs) => {
+    const mids = await getAllMids()
+    const ts = String(Date.now())
+    const get = (key: string) => {
+      const c = (inputs[key] ?? '').trim() || 'BTC'
+      return mids[c] ?? mids[c.toUpperCase()] ?? '0'
+    }
+    return { price1: get('coin1'), price2: get('coin2'), price3: get('coin3'), timestamp: ts }
+  },
+  subscribe: (inputs, onTrigger) => {
+    const seconds = Math.max(0.5, Math.min(3600, Number(inputs.intervalSeconds) || 1))
+    const ms = Math.round(seconds * 1000)
+    const id = setInterval(async () => {
+      try {
+        const mids = await getAllMids()
+        const ts = String(Date.now())
+        const get = (key: string) => {
+          const c = (inputs[key] ?? '').trim() || 'BTC'
+          return mids[c] ?? mids[c.toUpperCase()] ?? '0'
+        }
+        onTrigger({ price1: get('coin1'), price2: get('coin2'), price3: get('coin3'), timestamp: ts })
+      } catch (e) {
+        console.warn('[liveTokenPrices] getAllMids failed:', e)
+        onTrigger({ price1: '0', price2: '0', price3: '0', timestamp: String(Date.now()) })
+      }
+    }, ms)
+    return () => clearInterval(id)
+  },
+})
+
 // ─── Graph Display ───────────────────────────────────────
 
 registerBlock({
@@ -1125,6 +1178,58 @@ registerBlock({
     const value = Number.isFinite(num) ? String(num) : '0'
     const timestamp = String(Date.now())
     return { lastValue: value, lastTimestamp: timestamp }
+  },
+})
+
+// ─── Multigraph (multi-series + legend + pause) ────────────
+
+const MULTIGRAPH_N = 5
+
+registerBlock({
+  type: 'multigraph',
+  label: 'Multigraph',
+  description: 'Graph 2–5 series with a legend. Series can update at different times. Pause to freeze.',
+  category: 'display',
+  color: 'blue',
+  icon: 'barChart',
+  inputs: [
+    { name: 'numberOfSeries', label: 'Number of series', type: 'select', options: ['2', '3', '4', '5'], defaultValue: '3' },
+    { name: 'value1', label: 'Value 1', type: 'number', placeholder: 'Connect (e.g. BTC)', allowVariable: true, accepts: ['number'] },
+    { name: 'label1', label: 'Label 1', type: 'text', placeholder: 'e.g. BTC', defaultValue: 'Series 1' },
+    { name: 'value2', label: 'Value 2', type: 'number', placeholder: 'Connect (e.g. ETH)', allowVariable: true, accepts: ['number'] },
+    { name: 'label2', label: 'Label 2', type: 'text', placeholder: 'e.g. ETH', defaultValue: 'Series 2' },
+    { name: 'value3', label: 'Value 3', type: 'number', placeholder: 'Connect (e.g. SOL)', allowVariable: true, accepts: ['number'] },
+    { name: 'label3', label: 'Label 3', type: 'text', placeholder: 'e.g. SOL', defaultValue: 'Series 3' },
+    { name: 'value4', label: 'Value 4', type: 'number', placeholder: 'Connect', allowVariable: true, accepts: ['number'] },
+    { name: 'label4', label: 'Label 4', type: 'text', placeholder: 'e.g. Series 4', defaultValue: 'Series 4' },
+    { name: 'value5', label: 'Value 5', type: 'number', placeholder: 'Connect', allowVariable: true, accepts: ['number'] },
+    { name: 'label5', label: 'Label 5', type: 'text', placeholder: 'e.g. Series 5', defaultValue: 'Series 5' },
+  ],
+  outputs: [
+    { name: 'lastValue1', label: 'Last Value 1', type: 'number' },
+    { name: 'lastValue2', label: 'Last Value 2', type: 'number' },
+    { name: 'lastValue3', label: 'Last Value 3', type: 'number' },
+    { name: 'lastValue4', label: 'Last Value 4', type: 'number' },
+    { name: 'lastValue5', label: 'Last Value 5', type: 'number' },
+    { name: 'lastTimestamp', label: 'Last Timestamp', type: 'string' },
+  ],
+  getVisibleInputs: (inputs) => {
+    const n = Math.min(5, Math.max(2, parseInt(inputs.numberOfSeries ?? '3', 10) || 3))
+    const names: string[] = ['numberOfSeries']
+    for (let i = 1; i <= n; i++) {
+      names.push(`value${i}`, `label${i}`)
+    }
+    return names
+  },
+  run: async (inputs): Promise<Record<string, string>> => {
+    const ts = String(Date.now())
+    const out: Record<string, string> = { lastTimestamp: ts }
+    for (let i = 1; i <= MULTIGRAPH_N; i++) {
+      const raw = (inputs[`value${i}`] ?? '').trim()
+      const num = raw === '' ? NaN : Number(raw)
+      out[`lastValue${i}`] = Number.isFinite(num) ? String(num) : ''
+    }
+    return out
   },
 })
 
@@ -1171,6 +1276,46 @@ registerBlock({
   run: async (inputs): Promise<Record<string, string>> => {
     const out = transformDataType(inputs.value ?? '', inputs.targetType ?? 'number')
     return { value: out }
+  },
+})
+
+// ─── Price change % ─────────────────────────────────────────
+
+registerBlock({
+  type: 'priceChange',
+  label: 'Price change %',
+  description:
+    'Compute percent change from previous to current price. Connect Live Token Price (or current) and a Constant (or previous). Use with General Comparator to alert when move exceeds a threshold.',
+  category: 'filter',
+  color: 'yellow',
+  icon: 'percent',
+  inputs: [
+    {
+      name: 'currentPrice',
+      label: 'Current price',
+      type: 'number',
+      placeholder: 'Connect or enter',
+      allowVariable: true,
+      accepts: ['number', 'string'],
+    },
+    {
+      name: 'previousPrice',
+      label: 'Previous price',
+      type: 'number',
+      placeholder: 'Connect or enter',
+      allowVariable: true,
+      accepts: ['number', 'string'],
+    },
+  ],
+  outputs: [
+    { name: 'percentChange', label: 'Percent change', type: 'string' },
+  ],
+  run: async (inputs): Promise<Record<string, string>> => {
+    const percentChange = priceChangePercent(
+      inputs.currentPrice ?? '',
+      inputs.previousPrice ?? '',
+    )
+    return { percentChange }
   },
 })
 
@@ -1227,7 +1372,7 @@ registerBlock({
     const gasFeeUSD = quote?.gasFeeUSD ?? res?.gasFeeUSD ?? ''
     const routing = res?.routing ?? ''
     return {
-      amountOut: outputAmount,
+      amountOut: String(outputAmount),
       gasFeeUSD: String(gasFeeUSD),
       routing: String(routing),
       quote: JSON.stringify(res),
@@ -1540,14 +1685,13 @@ registerBlock({
 registerBlock({
   type: 'constant',
   label: 'Constant',
-  description: 'Output a fixed value. Connect to other blocks or use {{constantNodeId.value}} in expressions.',
+  description:
+    'Output a fixed value. Drag into the canvas and connect its output to any block input, or reference it in expressions as {{constantNodeId.value}}.',
   category: 'action',
   color: 'blue',
   icon: 'variable',
-  hidden: true,
   inputs: [
-    { name: 'name', label: 'Name (for reference)', type: 'text', placeholder: 'e.g. maxSlippage' },
-    { name: 'value', label: 'Value', type: 'text', placeholder: 'e.g. 0.5', allowVariable: false },
+    { name: 'value', label: 'Value', type: 'text', placeholder: 'e.g. 0.5 or 100', allowVariable: false },
   ],
   outputs: [
     { name: 'value', label: 'Value', type: 'string' },

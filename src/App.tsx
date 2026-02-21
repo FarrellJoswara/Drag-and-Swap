@@ -4,9 +4,11 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  ReactFlowProvider,
   addEdge,
   useEdgesState,
   useNodesState,
+  useReactFlow,
   type Connection,
   type Edge,
   type Node,
@@ -258,6 +260,27 @@ function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes:
   return { nodes: migratedNodes, edges: execEdges }
 }
 
+type FlowWithDropProps = React.ComponentProps<typeof ReactFlow> & {
+  onDropAtPosition: (event: React.DragEvent<HTMLDivElement>, position: { x: number; y: number }) => void
+}
+
+/** Renders ReactFlow and uses useReactFlow() so drop position uses the flow store's coordinate conversion. */
+function FlowWithDrop({ onDropAtPosition, ...reactFlowProps }: FlowWithDropProps) {
+  const { screenToFlowPosition } = useReactFlow()
+  const onDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      const nodeWidth = 220
+      const nodeHeightApprox = 50
+      const centered = { x: position.x - nodeWidth / 2, y: position.y - nodeHeightApprox / 2 }
+      onDropAtPosition(event, centered)
+    },
+    [screenToFlowPosition, onDropAtPosition],
+  )
+  return <ReactFlow {...reactFlowProps} onDrop={onDrop} />
+}
+
 export default function App() {
   const { id: agentId } = useParams<{ id: string }>()
   const { pathname } = useLocation()
@@ -266,7 +289,6 @@ export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState(emptyNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(emptyEdges)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const reactFlowInstance = useRef<Parameters<typeof ReactFlow>[0] & { screenToFlowPosition?: (pos: { x: number; y: number }) => { x: number; y: number } }>(null)
 
   const { toast } = useToast()
   const { setCurrentFlow } = useCurrentFlow()
@@ -446,23 +468,16 @@ export default function App() {
     event.dataTransfer.dropEffect = 'move'
   }, [])
 
-  const onDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      event.preventDefault()
+  /** Called by FlowWithDrop with flow coordinates so drop uses the flow store's screenToFlowPosition. */
+  const handleDropAtPosition = useCallback(
+    (event: React.DragEvent<HTMLDivElement>, position: { x: number; y: number }) => {
       const blockType = event.dataTransfer.getData('application/reactflow')
-
       if (!blockType || !reactFlowWrapper.current) return
 
       const definition = getBlock(blockType)
       if (!definition) return
 
       takeSnapshot()
-
-      const bounds = reactFlowWrapper.current.getBoundingClientRect()
-      const position = (reactFlowInstance.current as any)?.screenToFlowPosition?.({
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      }) ?? { x: event.clientX - bounds.left - 110, y: event.clientY - bounds.top - 50 }
 
       const defaultData: Record<string, string> = { blockType }
       for (const field of definition.inputs) {
@@ -605,6 +620,25 @@ export default function App() {
         return
       }
 
+      // Ctrl+X — cut selected (copy then delete)
+      if (mod && e.key === 'x') {
+        if (selected.length === 0) return
+        e.preventDefault()
+        const ids = new Set(selected.map((n) => n.id))
+        clipboard.current = {
+          nodes: selected.map((n) => ({ ...n, data: { ...n.data } })),
+          edges: currentEdges.filter((ed) => ids.has(ed.source) && ids.has(ed.target)),
+        }
+        takeSnapshot()
+        const edgesToRemove = currentEdges.filter(
+          (ed) => ids.has(ed.source) || ids.has(ed.target),
+        )
+        onNodesChange(selected.map((n) => ({ type: 'remove', id: n.id })))
+        onEdgesChange(edgesToRemove.map((ed) => ({ type: 'remove', id: ed.id })))
+        toast(`Cut ${selected.length} node${selected.length > 1 ? 's' : ''}`, 'info')
+        return
+      }
+
       // Ctrl+V — paste
       if (mod && e.key === 'v') {
         const { nodes: clipNodes, edges: clipEdges } = clipboard.current
@@ -708,33 +742,33 @@ export default function App() {
           />
 
           <div ref={reactFlowWrapper} className="flex-1 relative">
-            <ReactFlow
-              key={agentId ?? 'new'}
-              ref={reactFlowInstance as any}
-              nodes={nodesDeduped}
-              edges={edgesFiltered}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={handleEdgesChange}
-              onConnect={onConnect}
-              onDragOver={onDragOver}
-              onDrop={onDrop}
-              onNodeDragStart={onNodeDragStart}
-              onNodeContextMenu={onNodeContextMenu}
-              onEdgeDoubleClick={onEdgeDoubleClick}
-              nodeTypes={nodeTypes}
-              defaultEdgeOptions={defaultEdgeOptions}
-              fitView
-              fitViewOptions={{ padding: 0.3 }}
-              deleteKeyCode={['Backspace', 'Delete']}
-              proOptions={{ hideAttribution: true }}
-              className="bg-[#0a0a0f]"
-            >
-              <Background
-                variant={BackgroundVariant.Dots}
-                gap={20}
-                size={1}
-                color="#1e293b"
-              />
+            <ReactFlowProvider>
+              <FlowWithDrop
+                key={agentId ?? 'new'}
+                nodes={nodesDeduped}
+                edges={edgesFiltered}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
+                onConnect={onConnect}
+                onDragOver={onDragOver}
+                onNodeDragStart={onNodeDragStart}
+                onNodeContextMenu={onNodeContextMenu}
+                onEdgeDoubleClick={onEdgeDoubleClick}
+                nodeTypes={nodeTypes}
+                defaultEdgeOptions={defaultEdgeOptions}
+                fitView
+                fitViewOptions={{ padding: 0.3 }}
+                deleteKeyCode={['Backspace', 'Delete']}
+                proOptions={{ hideAttribution: true }}
+                className="bg-[#0a0a0f]"
+                onDropAtPosition={handleDropAtPosition}
+              >
+                <Background
+                  variant={BackgroundVariant.Dots}
+                  gap={20}
+                  size={1}
+                  color="#1e293b"
+                />
               <Controls showInteractive={false} />
               <MiniMap
                 nodeColor={(n) => {
@@ -748,7 +782,8 @@ export default function App() {
                 maskColor="rgba(10,10,15,0.85)"
                 style={{ bottom: 16, right: 16 }}
               />
-            </ReactFlow>
+              </FlowWithDrop>
+            </ReactFlowProvider>
 
             {/* Color legend for minimap - positioned above the minimap */}
             <div

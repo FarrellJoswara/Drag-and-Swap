@@ -1,5 +1,6 @@
 import { getBlock, type BlockDefinition } from './blockRegistry'
 import type { ConnectedModel, ConnectedNode } from '../utils/buildConnectedModel'
+import { EXEC_OUT_HANDLE } from '../utils/executionHandles'
 
 export type TriggerPayload = {
   agentId: string
@@ -62,6 +63,8 @@ export type RunOptions = {
   onDisplayUpdate?: (nodeId: string, value: string) => void
   /** When a graphDisplay node completes, called so the chart can append a point. */
   onGraphPointUpdate?: (agentId: string, nodeId: string, point: GraphPoint) => void
+  /** When a multigraph node completes, called per series that has a value (seriesIndex 0..4). */
+  onMultigraphPointUpdate?: (agentId: string, nodeId: string, seriesIndex: number, point: GraphPoint) => void
   /** Agent id when running from subscribeToAgent (for rate limit, etc.). */
   agentId?: string
 }
@@ -171,6 +174,23 @@ export async function runFromNode(
   if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
     options.onDisplayUpdate(nodeId, JSON.stringify(targetResult, null, 2))
   }
+  if (def.type === 'graphDisplay' && options?.onGraphPointUpdate) {
+    const aid = runContext.agentId ?? options?.agentId ?? ''
+    const ts = Number(targetResult.lastTimestamp) || Date.now()
+    const val = Number(targetResult.lastValue) || 0
+    options.onGraphPointUpdate(aid, nodeId, { timestamp: ts, value: val })
+  }
+  if (def.type === 'multigraph' && options?.onMultigraphPointUpdate) {
+    const aid = runContext.agentId ?? options?.agentId ?? ''
+    const ts = Number(targetResult.lastTimestamp) || Date.now()
+    for (let i = 1; i <= 5; i++) {
+      const raw = targetResult[`lastValue${i}`]
+      if (raw != null && String(raw).trim() !== '') {
+        const val = Number(raw) || 0
+        options.onMultigraphPointUpdate(aid, nodeId, i - 1, { timestamp: ts, value: val })
+      }
+    }
+  }
   console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, targetResult)
 
   await runDownstreamGraph(model, nodeId, targetResult, context, options)
@@ -253,7 +273,8 @@ export async function runDownstreamGraph(
         return processed.has(dataBinding.sourceNodeId)
       }
     }
-    return n.inputs.every((c) => processed.has(c.sourceNodeId))
+    // Run when any exec input has run so multigraph/graph can update from different triggers (async series)
+    return n.inputs.some((c) => processed.has(c.sourceNodeId))
   }
 
   const queue: string[] = []
@@ -336,12 +357,27 @@ export async function runDownstreamGraph(
         const val = Number(result.lastValue) || 0
         options.onGraphPointUpdate(agentId, nodeId, { timestamp: ts, value: val })
       }
+      if (def.type === 'multigraph' && options?.onMultigraphPointUpdate) {
+        const agentId = context?.agentId ?? options?.agentId ?? ''
+        const ts = Number(result.lastTimestamp) || Date.now()
+        for (let i = 1; i <= 5; i++) {
+          const raw = result[`lastValue${i}`]
+          if (raw != null && String(raw).trim() !== '') {
+            const val = Number(raw) || 0
+            options.onMultigraphPointUpdate(agentId, nodeId, i - 1, { timestamp: ts, value: val })
+          }
+        }
+      }
       console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, result)
-      // Only queue targets for output handles that have a truthy value (enables conditional branching)
+      // Queue downstream: when edge uses execution handle (exec-out), block result has no such key,
+      // so treat as "has output" if result exists; otherwise require truthy value (conditional branching).
       for (const out of node.outputs) {
         const handleName = out.sourceHandle ?? Object.keys(result)[0]
         const outVal = handleName != null ? result[handleName] : undefined
-        if (outVal != null && String(outVal).trim() !== '' && !processed.has(out.targetNodeId) && !queue.includes(out.targetNodeId)) {
+        const hasOutput =
+          (outVal != null && String(outVal).trim() !== '') ||
+          (handleName === EXEC_OUT_HANDLE && result != null && typeof result === 'object' && Object.keys(result).length > 0)
+        if (hasOutput && !processed.has(out.targetNodeId) && !queue.includes(out.targetNodeId)) {
           queue.push(out.targetNodeId)
         }
       }
@@ -356,6 +392,8 @@ export type SubscribeOptions = {
   onDisplayUpdate?: (nodeId: string, value: string) => void
   /** When a graphDisplay node completes, called to append a point to the chart series. */
   onGraphPointUpdate?: (agentId: string, nodeId: string, point: GraphPoint) => void
+  /** When a multigraph node completes, called per series that has a value (seriesIndex 0..4). */
+  onMultigraphPointUpdate?: (agentId: string, nodeId: string, seriesIndex: number, point: GraphPoint) => void
   /** When provided, use this model (e.g. current editor flow) instead of saved model when running downstream. Enables "Fields to Show" toggles without saving. */
   getModel?: (agentId: string) => ConnectedModel | null
 }
@@ -375,6 +413,7 @@ export function subscribeToAgent(
   const runOptions: RunOptions = { agentId }
   if (subscribeOptions?.onDisplayUpdate) runOptions.onDisplayUpdate = subscribeOptions.onDisplayUpdate
   if (subscribeOptions?.onGraphPointUpdate) runOptions.onGraphPointUpdate = subscribeOptions.onGraphPointUpdate
+  if (subscribeOptions?.onMultigraphPointUpdate) runOptions.onMultigraphPointUpdate = subscribeOptions.onMultigraphPointUpdate
   const getModel = subscribeOptions?.getModel
   const modelForInputs = getModel ? (getModel(agentId) ?? model) : model
 

@@ -20,13 +20,14 @@ import { useSendTransaction } from '../../hooks/useSendTransaction'
 import { useSignTypedData } from '../../hooks/useSignTypedData'
 import { useAgentId } from '../../contexts/AgentIdContext'
 import { useDisplayValue } from '../../contexts/DisplayValueContext'
-import { useGraphSeries } from '../../contexts/GraphSeriesContext'
+import { useGraphSeries, MULTIGRAPH_MAX_SERIES } from '../../contexts/GraphSeriesContext'
 import {
   LineChart,
   Line,
   XAxis,
   YAxis,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from 'recharts'
 
@@ -58,7 +59,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const signTypedData = useSignTypedData()
   const agentId = useAgentId()
   const { getDisplayValue, setDisplayValue, clearDisplayValue } = useDisplayValue()
-  const { getSeries, clearSeries } = useGraphSeries()
+  const { getSeries, getMultigraphSeries, appendPoint, clearSeries, setPaused, getPaused } = useGraphSeries()
 
   if (!definition) {
     return (
@@ -128,6 +129,26 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       setNodes((nodes) =>
         nodes.map((n) =>
           n.id === id ? { ...n, data: { ...n.data, graphDisplayWidth: w } } : n,
+        ),
+      ),
+    [id, setNodes],
+  )
+
+  const setMultigraphHeight = useCallback(
+    (h: number) =>
+      setNodes((nodes) =>
+        nodes.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, multigraphHeight: h } } : n,
+        ),
+      ),
+    [id, setNodes],
+  )
+
+  const setMultigraphWidth = useCallback(
+    (w: number) =>
+      setNodes((nodes) =>
+        nodes.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, multigraphWidth: w } } : n,
         ),
       ),
     [id, setNodes],
@@ -329,13 +350,21 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     const model = buildConnectedModel(nodes, edges)
     const displayAgentId = agentId ?? 'editor'
     const runOptions = {
+      agentId: displayAgentId,
       onDisplayUpdate: (nodeId: string, value: string) =>
         setDisplayValue(displayAgentId, nodeId, value),
+      onGraphPointUpdate: (aid: string, nodeId: string, point: { timestamp: number; value: number }) => {
+        if (!getPaused(aid, nodeId)) appendPoint(aid, nodeId, point)
+      },
+      onMultigraphPointUpdate: (aid: string, nodeId: string, seriesIndex: number, point: { timestamp: number; value: number }) => {
+        if (!getPaused(aid, nodeId)) appendPoint(aid, nodeId, point, seriesIndex)
+      },
     }
     const context = {
       walletAddress: walletAddress ?? undefined,
       sendTransaction: sendTransaction ?? undefined,
       signTypedData: signTypedData ?? undefined,
+      agentId: displayAgentId,
     }
     setRunLoading(true)
     try {
@@ -347,7 +376,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     } finally {
       setRunLoading(false)
     }
-  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, agentId, setDisplayValue])
+  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, agentId, setDisplayValue, getPaused, appendPoint])
 
   const runDisabled = (blockType === 'swap' || blockType === 'getQuote') && !walletAddress
   const runButton =
@@ -450,7 +479,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220)
               : blockType === 'graphDisplay'
                 ? (data.graphDisplayWidth != null ? Number(data.graphDisplayWidth) : 280)
-                : undefined
+                : blockType === 'multigraph'
+                  ? (data.multigraphWidth != null ? Number(data.multigraphWidth) : 320)
+                  : undefined
           }
           headerAction={runButton}
         >
@@ -527,7 +558,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220)
               : blockType === 'graphDisplay'
                 ? (data.graphDisplayWidth != null ? Number(data.graphDisplayWidth) : 280)
-                : undefined
+                : blockType === 'multigraph'
+                  ? (data.multigraphWidth != null ? Number(data.multigraphWidth) : 320)
+                  : undefined
           }
           headerAction={blockType === 'manualTrigger' ? undefined : runButton}
     >
@@ -788,6 +821,139 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                             dot={false}
                             isAnimationActive={false}
                           />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+              </ResizablePanel>
+            )
+          })()}
+
+          {blockType === 'multigraph' && (() => {
+            const mgHeight = (data.multigraphHeight != null ? Number(data.multigraphHeight) : null) ?? 140
+            const mgWidth = (data.multigraphWidth != null ? Number(data.multigraphWidth) : null) ?? 320
+            const seriesList = getMultigraphSeries(displayAgentIdForValue, id)
+            const numberOfSeries = Math.min(MULTIGRAPH_MAX_SERIES, Math.max(2, parseInt(String(inputs.numberOfSeries ?? '3'), 10) || 3))
+            const labels = Array.from({ length: MULTIGRAPH_MAX_SERIES }, (_, i) =>
+              (inputs[`label${i + 1}`] ?? `Series ${i + 1}`).trim() || `Series ${i + 1}`,
+            )
+            const paused = getPaused(displayAgentIdForValue, id)
+            const formatExact = (v: number) => {
+              if (!Number.isFinite(v)) return '—'
+              if (Number.isInteger(v)) return String(v)
+              return v.toFixed(12).replace(/\.?0+$/, '')
+            }
+            const timeRows = new Map<number, Record<string, number>>()
+            seriesList.forEach((pts, idx) => {
+              const key = `value${idx + 1}`
+              pts.forEach((p) => {
+                let row = timeRows.get(p.timestamp)
+                if (!row) {
+                  row = {}
+                  timeRows.set(p.timestamp, row)
+                }
+                row[key] = p.value
+              })
+            })
+            const sortedTs = Array.from(timeRows.keys()).sort((a, b) => a - b)
+            const chartData = sortedTs.map((ts) => {
+              const row = timeRows.get(ts)!
+              const out: Record<string, string | number | null> = {
+                time: new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              }
+              for (let i = 1; i <= MULTIGRAPH_MAX_SERIES; i++) out[`value${i}`] = row[`value${i}`] ?? null
+              return out
+            })
+            const valueKeys = Array.from({ length: MULTIGRAPH_MAX_SERIES }, (_, i) => `value${i + 1}`)
+            const allValues = chartData.flatMap((d) =>
+              valueKeys.map((k) => (d as Record<string, number | null>)[k]).filter((v): v is number => v != null),
+            )
+            const minVal = allValues.length ? Math.min(...allValues) : 0
+            const maxVal = allValues.length ? Math.max(...allValues) : 1
+            const range = maxVal - minVal
+            const padding = range > 0 ? range * 0.05 : Math.abs(minVal) * 0.01 || 1
+            const yDomain: [number, number] = allValues.length ? [minVal - padding, maxVal + padding] : [0, 1]
+            const MULTIGRAPH_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+            return (
+              <ResizablePanel
+                height={mgHeight}
+                onHeightChange={setMultigraphHeight}
+                minHeight={80}
+                maxHeight={400}
+                width={mgWidth}
+                onWidthChange={setMultigraphWidth}
+                minWidth={240}
+                maxWidth={600}
+              >
+                <div className="rounded-md border border-slate-700 bg-slate-900/95 overflow-hidden flex-1 min-h-0 flex flex-col">
+                  <div className="px-2 py-1 border-b border-slate-700/80 flex items-center justify-between gap-1.5 flex-shrink-0 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500/80" aria-hidden />
+                      <span className="text-[9px] font-medium text-slate-500 uppercase tracking-wider">
+                        Multigraph
+                      </span>
+                      {paused && (
+                        <span className="text-[9px] font-medium text-amber-400/90 border border-amber-500/40 rounded px-1">
+                          Paused
+                        </span>
+                      )}
+                    </div>
+                    <>
+                      <button
+                        type="button"
+                        className="nodrag nopan text-[9px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors"
+                        onClick={() => setPaused(displayAgentIdForValue, id, !paused)}
+                      >
+                        {paused ? 'Resume' : 'Pause'}
+                      </button>
+                      <button
+                        type="button"
+                        className="nodrag nopan text-[9px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors"
+                        onClick={() => clearSeries(displayAgentIdForValue, id)}
+                      >
+                        Clear
+                      </button>
+                    </>
+                  </div>
+                  <div className="flex-1 min-h-0 min-w-0" style={{ width: mgWidth, height: mgHeight - 28 }}>
+                    {chartData.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-[10px] text-slate-500 italic">
+                        {agentId == null
+                          ? 'Save agent to see chart'
+                          : 'Connect one or more values (e.g. Live Token Price) and run'}
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
+                          <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#94a3b8' }} stroke="#475569" />
+                          <YAxis
+                            tick={{ fontSize: 9, fill: '#94a3b8' }}
+                            stroke="#475569"
+                            domain={yDomain}
+                            width={40}
+                            tickFormatter={(v) => (Number(v) >= 1000 ? `${(v / 1000).toFixed(2)}k` : String(v))}
+                          />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', fontSize: 10 }}
+                            labelStyle={{ color: '#94a3b8' }}
+                            formatter={(value: number | undefined, name: string | undefined) => [value != null ? formatExact(value) : '—', name ?? 'Value']}
+                            labelFormatter={(label) => `Time: ${label}`}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 9 }} iconSize={8} />
+                          {Array.from({ length: numberOfSeries }, (_, i) => i + 1).map((i) => (
+                            <Line
+                              key={i}
+                              type="monotone"
+                              dataKey={`value${i}`}
+                              name={labels[i - 1]}
+                              stroke={MULTIGRAPH_COLORS[i - 1]}
+                              strokeWidth={2}
+                              dot={false}
+                              isAnimationActive={false}
+                              connectNulls
+                            />
+                          ))}
                         </LineChart>
                       </ResponsiveContainer>
                     )}

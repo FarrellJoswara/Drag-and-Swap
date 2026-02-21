@@ -22,7 +22,7 @@ export function useActiveAgentRunners(
   const onTriggerRef = useRef(onTrigger)
   onTriggerRef.current = onTrigger
   const { setDisplayValue } = useDisplayValue()
-  const { appendPoint } = useGraphSeries()
+  const { appendPoint, getPaused } = useGraphSeries()
   const { getCurrentFlow } = useCurrentFlow()
 
   const getModel = useCallback(
@@ -65,7 +65,12 @@ export function useActiveAgentRunners(
         context,
         {
           onDisplayUpdate: (nodeId, value) => setDisplayValue(agent.id, nodeId, value),
-          onGraphPointUpdate: (agentId, nodeId, point) => appendPoint(agentId, nodeId, point),
+          onGraphPointUpdate: (agentId, nodeId, point) => {
+            if (!getPaused(agentId, nodeId)) appendPoint(agentId, nodeId, point)
+          },
+          onMultigraphPointUpdate: (agentId, nodeId, seriesIndex, point) => {
+            if (!getPaused(agentId, nodeId)) appendPoint(agentId, nodeId, point, seriesIndex)
+          },
           getModel,
         },
       )
@@ -75,5 +80,5 @@ export function useActiveAgentRunners(
     return () => {
       for (const cleanup of cleanups) cleanup()
     }
-  }, [active, triggerInputsSignature, setDisplayValue, appendPoint, getModel])
+  }, [active, triggerInputsSignature, setDisplayValue, appendPoint, getPaused, getModel])
 }

@@ -245,6 +245,22 @@ export function mergeOutputs(inputs: Record<string, string>): Record<string, str
   return { out: JSON.stringify(values) }
 }
 
+// ─── Price change % ─────────────────────────────────────────
+
+/**
+ * Compute percent change from previous to current: ((current - previous) / previous) * 100.
+ * Returns a string with 2 decimal places, or '' if previous is zero or non-numeric.
+ */
+export function priceChangePercent(currentPrice: string, previousPrice: string): string {
+  const current = Number(String(currentPrice ?? '').trim())
+  const previous = Number(String(previousPrice ?? '').trim())
+  if (!Number.isFinite(previous) || previous === 0 || !Number.isFinite(current)) {
+    return ''
+  }
+  const pct = ((current - previous) / previous) * 100
+  return Number.isFinite(pct) ? pct.toFixed(2) : ''
+}
+
 // ─── Transform Data Type ───────────────────────────────────
 
 export type TransformTargetType = 'number' | 'string' | 'boolean' | 'json'
