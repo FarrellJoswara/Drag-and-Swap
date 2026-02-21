@@ -93,6 +93,8 @@ export interface BlockDefinition {
   service?: BlockService
   inputs: InputField[]
   outputs: OutputField[]
+  /** When set, outputs depend on current inputs (e.g. stream type). Use getOutputsForBlock(blockType, node.data) to resolve. */
+  getOutputs?: (inputs: Record<string, string>) => OutputField[]
   /** When set, block uses side-panel layout: inputs in mainInputNames go in main card, rest in side panel */
   sidePanel?: { label: string; mainInputNames: string[] }
   run: (inputs: Record<string, string>, context?: import('./runAgent').RunContext) => Promise<Record<string, string>>
@@ -151,6 +153,24 @@ export function getAllOutputOptions() {
     }
   }
   return options
+}
+
+/**
+ * Resolve outputs for a block given its current node data (e.g. for dynamic outputs by stream type).
+ * Uses getOutputs(inputs) when defined, otherwise returns definition.outputs.
+ */
+export function getOutputsForBlock(
+  blockType: string,
+  nodeData: Record<string, unknown>,
+): OutputField[] {
+  const def = registry.get(blockType)
+  if (!def) return []
+  const inputs: Record<string, string> = {}
+  for (const [k, v] of Object.entries(nodeData ?? {})) {
+    inputs[k] = v != null ? String(v) : ''
+  }
+  if (def.getOutputs) return def.getOutputs(inputs)
+  return def.outputs
 }
 
 // ── Icon map ──────────────────────────────────────────────

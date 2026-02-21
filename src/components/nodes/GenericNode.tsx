@@ -1,9 +1,10 @@
-import { Handle, Position, useReactFlow, useEdges, useStore, type NodeProps } from '@xyflow/react'
+import { Handle, Position, useReactFlow, useEdges, type NodeProps } from '@xyflow/react'
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { Play } from 'lucide-react'
 import {
   getBlock,
   getBlockIcon,
+  getOutputsForBlock,
   iconColorClass,
 } from '../../lib/blockRegistry'
 import BlockInput, { type ConnectionInfo } from './BlockInputs'
@@ -133,54 +134,24 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const Icon = getBlockIcon(definition.icon)
   const edges = useEdges()
 
-  // Subscribe to connected Output Display nodes' fields so we re-render when user changes "Fields to Show" (variable lights update)
-  const targetDisplayFieldsSignature = useStore(
-    useCallback(
-      (state) => {
-        const outEdges = state.edges.filter((e: { source: string }) => e.source === id)
-        const targetIds = outEdges.map((e: { target: string }) => e.target)
-        return targetIds
-          .map((tid: string) => {
-            const n = state.nodes.find((node: { id: string }) => node.id === tid)
-            if ((n?.data?.blockType as string) !== 'streamDisplay') return ''
-            return (n?.data?.fields as string) ?? ''
-          })
-          .join('|')
-      },
-      [id],
-    ),
+  // Resolved outputs (dynamic per stream type / settings); fallback to definition.outputs
+  const resolvedOutputs = useMemo(
+    () => getOutputsForBlock(blockType, data),
+    [blockType, data],
   )
 
-  // Count connections for each output: lit when edge.sourceHandle matches OR when edge goes to Output Display and that display's Fields to Show includes this output
+  // Count connections for each output: only the output handle that actually has an edge shows green
   const outputConnections = useMemo(() => {
-    const nodes = getNodes()
     const counts: Record<string, number> = {}
-    for (const out of definition.outputs) counts[out.name] = 0
+    for (const out of resolvedOutputs) counts[out.name] = 0
     for (const e of edges) {
       if (e.source !== id) continue
       const sourceHandle = e.sourceHandle ?? null
-      const targetNode = nodes.find((n) => n.id === e.target)
-      const targetBlock = (targetNode?.data?.blockType as string) ?? targetNode?.type
-      let displayFields: string[] = []
-      if (targetBlock === 'streamDisplay' && targetNode?.data?.fields != null) {
-        try {
-          const raw = String(targetNode.data.fields).trim()
-          if (raw) {
-            const parsed = JSON.parse(raw)
-            if (Array.isArray(parsed)) displayFields = parsed
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-      for (const out of definition.outputs) {
-        if (sourceHandle === out.name || displayFields.includes(out.name)) {
-          counts[out.name] = (counts[out.name] ?? 0) + 1
-        }
-      }
+      if (sourceHandle == null) continue
+      if (counts[sourceHandle] != null) counts[sourceHandle] += 1
     }
     return counts
-  }, [edges, id, definition.outputs, getNodes, targetDisplayFieldsSignature])
+  }, [edges, id, resolvedOutputs])
 
   // Check which inputs are connected
   const inputConnections = useMemo(() => {
@@ -203,18 +174,21 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       if (!edge) continue
       const sourceNode = nodes.find((n) => n.id === edge.source)
       if (!sourceNode) continue
-      const sourceDef = getBlock(sourceNode.data?.blockType as string)
-      if (!sourceDef?.outputs?.length) continue
+      const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
+      const sourceDef = getBlock(sourceBlockType)
+      if (!sourceDef) continue
       if (sourceDef.category === 'trigger' && !(blockType === 'streamDisplay' && field.name === 'data')) {
         continue // Trigger connections don't pass data; show literal input instead
       }
-      const currentSourceHandle = sourceDef.outputs.some((o) => o.name === edge.sourceHandle)
-        ? (edge.sourceHandle ?? sourceDef.outputs[0].name)
-        : sourceDef.outputs[0].name
+      const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+      if (!sourceOutputs.length) continue
+      const currentSourceHandle = sourceOutputs.some((o) => o.name === edge.sourceHandle)
+        ? (edge.sourceHandle ?? sourceOutputs[0].name)
+        : sourceOutputs[0].name
       result[field.name] = {
         edgeId: edge.id,
         sourceBlockLabel: sourceDef.label,
-        availableOutputs: sourceDef.outputs.map((o) => ({ name: o.name, label: o.label })),
+        availableOutputs: sourceOutputs.map((o) => ({ name: o.name, label: o.label })),
         currentSourceHandle,
       }
     }
@@ -229,7 +203,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       if (e.target !== id) continue
       const sourceNode = nodes.find((n) => n.id === e.source)
       if (!sourceNode) continue
-      const def = getBlock(sourceNode.data?.blockType as string)
+      const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
+      const def = getBlock(sourceBlockType)
       if (def?.label) labels.add(def.label)
     }
     return Array.from(labels)
@@ -245,9 +220,10 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     if (!edge) return []
     const sourceNode = nodes.find((n) => n.id === edge.source)
     if (!sourceNode) return []
-    const sourceDef = getBlock(sourceNode.data?.blockType as string)
-    if (!sourceDef?.outputs?.length) return []
-    return sourceDef.outputs.map((o) => ({ name: o.name, label: o.label }))
+    const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
+    const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+    if (!sourceOutputs.length) return []
+    return sourceOutputs.map((o) => ({ name: o.name, label: o.label }))
   }, [blockType, connectionInfoByInput, edges, id, getNodes])
 
   const onSourceOutputChange = useCallback(
@@ -297,12 +273,12 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     : []
 
   const renderOutputsSection = () =>
-    definition.outputs.length > 0 ? (
+    resolvedOutputs.length > 0 ? (
       <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-800/60">
         <span className="text-[9px] font-medium text-slate-600 uppercase tracking-wider">
           Outputs
         </span>
-        {definition.outputs.map((out) => {
+        {resolvedOutputs.map((out) => {
           const connectionCount = outputConnections[out.name] || 0
           return (
             <div key={out.name} className="flex items-center gap-1.5 group relative">
@@ -577,12 +553,12 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
             )
           })()}
 
-          {definition.outputs.length > 0 && (
+          {resolvedOutputs.length > 0 && (
             <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-800/60">
               <span className="text-[9px] font-medium text-slate-600 uppercase tracking-wider">
                 Outputs
               </span>
-              {definition.outputs.map((out) => {
+              {resolvedOutputs.map((out) => {
                 const connectionCount = outputConnections[out.name] || 0
                 return (
                   <div key={out.name} className="flex items-center gap-1.5 group relative">
@@ -646,7 +622,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
 
       {/* Output handles on right side, aligned with outputs */}
       <div className="absolute right-0 top-0 bottom-0 flex flex-col justify-center gap-1 -mr-[5px]">
-        {definition.outputs.map((out) => {
+        {resolvedOutputs.map((out) => {
           const isConnected = (outputConnections[out.name] ?? 0) > 0
           return (
             <Handle

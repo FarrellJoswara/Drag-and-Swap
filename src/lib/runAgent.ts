@@ -127,16 +127,18 @@ export async function runDownstreamGraph(
         } else {
           const srcOuts = outputs.get(conn.sourceNodeId)
           if (srcOuts) {
-            // Stream Display "data" input: always use source's "data" output (full event JSON) when present, so user sees useful output instead of e.g. "A"/"B" from "side"
-            const useDataForDisplay =
+            // Stream Display "data" input: pass full normalized outputs (same keys as "Fields to Show") so selected fields match and display correctly
+            const useNormalizedForDisplay =
               def.type === 'streamDisplay' &&
               field.name === 'data' &&
-              srcOuts.data != null &&
-              String(srcOuts.data).trim() !== ''
-            const outName = useDataForDisplay
+              srcOuts != null &&
+              typeof srcOuts === 'object'
+            const outName = useNormalizedForDisplay
               ? 'data'
               : (conn.sourceHandle ?? Object.keys(srcOuts)[0])
-            const connectedVal = srcOuts[outName] ?? val
+            const connectedVal = useNormalizedForDisplay
+              ? JSON.stringify(srcOuts)
+              : (srcOuts[outName] ?? val)
             if (storedVal.trim() !== '') {
               val = storedVal
             } else {

@@ -1,5 +1,5 @@
-import { getBlock } from '../lib/blockRegistry'
-import type { OutputField, InputField } from '../lib/blockRegistry'
+import { getBlock, getOutputsForBlock } from '../lib/blockRegistry'
+import type { InputField } from '../lib/blockRegistry'
 import type { Node } from '@xyflow/react'
 
 /**
@@ -33,8 +33,9 @@ export function isValidConnection(
     return { valid: true }
   }
 
-  // Find the output and input fields
-  const sourceOutput = sourceBlock.outputs.find((o: OutputField) => o.name === sourceHandle)
+  // Find the output and input fields (use resolved outputs when block has dynamic outputs)
+  const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+  const sourceOutput = sourceOutputs.find((o) => o.name === sourceHandle)
   const targetInput = targetBlock.inputs.find((i: InputField) => i.name === targetHandle)
 
   // Reject if target handle doesn't exist (e.g. slippage, swapper when no handle is rendered)
@@ -46,7 +47,7 @@ export function isValidConnection(
     return { valid: false, reason: 'Wallet inputs use the connected wallet and cannot receive connections' }
   }
   if (!sourceOutput) {
-    return { valid: true, reason: 'Source output not found, allowing connection' }
+    return { valid: false, reason: 'Source output not available for current settings' }
   }
 
   // If neither has type information, allow (backward compatibility)

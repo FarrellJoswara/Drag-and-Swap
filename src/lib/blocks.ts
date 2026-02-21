@@ -23,6 +23,7 @@
  */
 
 import { registerBlock } from './blockRegistry'
+import { getHyperliquidStreamOutputs } from './hyperliquidStreamOutputs'
 import { recentTrades, bookSnapshot, recentEvents } from '../services/hyperliquid'
 import {
   buildFiltersFromSpec,
@@ -242,6 +243,7 @@ registerBlock({
     { name: 'status', label: 'Status', type: 'string' },
     { name: 'side', label: 'Side', type: 'string' },
   ],
+  getOutputs: (inputs) => getHyperliquidStreamOutputs(inputs.streamType ?? 'trades'),
   run: async (inputs) => {
     // Placeholder outputs for manual run
     return {

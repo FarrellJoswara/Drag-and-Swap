@@ -26,7 +26,7 @@ import { useWalletAddress } from './hooks/useWalletAddress'
 import { useAgents } from './contexts/AgentsContext'
 import { AgentIdProvider } from './contexts/AgentIdContext'
 import { useCurrentFlow } from './contexts/CurrentFlowContext'
-import { getBlock, minimapColor } from './lib/blockRegistry'
+import { getBlock, getOutputsForBlock, minimapColor } from './lib/blockRegistry'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
 import { isValidConnection } from './utils/connectionValidation'
@@ -166,7 +166,8 @@ function validateAndFilterEdges(nodes: Node[], edges: Edge[]): Edge[] {
     const defSource = getBlock(sourceBlock)
     const defTarget = getBlock(targetBlock)
     if (!defSource || !defTarget) return false
-    const sourceOk = defSource.outputs.some((o) => o.name === e.sourceHandle)
+    const sourceOutputs = getOutputsForBlock(sourceBlock, sourceNode.data ?? {})
+    const sourceOk = sourceOutputs.some((o) => o.name === e.sourceHandle)
     if (!sourceOk) return false
     const targetInput = defTarget.inputs.find((i) => i.name === e.targetHandle)
     if (!targetInput || targetInput.type === 'walletAddress') return false
