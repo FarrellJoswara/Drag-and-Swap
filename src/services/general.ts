@@ -229,6 +229,47 @@ export function mergeOutputs(inputs: Record<string, string>): Record<string, str
   return { out: JSON.stringify(values) }
 }
 
+// ─── Transform Data Type ───────────────────────────────────
+
+export type TransformTargetType = 'number' | 'string' | 'boolean' | 'json'
+
+/**
+ * Transform a string value to the target data type. Returns the value as a string
+ * (block outputs are always strings). targetType must be one of: number, string, boolean, json.
+ */
+export function transformDataType(value: string, targetType: string): string {
+  const raw = (value ?? '').trim()
+  const type = (targetType ?? 'string').toLowerCase() as TransformTargetType
+
+  switch (type) {
+    case 'number': {
+      const num = raw === '' ? NaN : Number(raw)
+      return Number.isFinite(num) ? String(num) : '0'
+    }
+    case 'string':
+      return raw
+    case 'boolean': {
+      if (raw === '') return 'false'
+      const lower = raw.toLowerCase()
+      if (lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on') return 'true'
+      const n = Number(raw)
+      if (Number.isFinite(n) && n !== 0) return 'true'
+      return 'false'
+    }
+    case 'json': {
+      if (raw === '') return '{}'
+      try {
+        const parsed = JSON.parse(raw) as unknown
+        return JSON.stringify(parsed)
+      } catch {
+        return JSON.stringify(raw)
+      }
+    }
+    default:
+      return raw
+  }
+}
+
 // ─── Log / Debug ───────────────────────────────────────────
 
 export function logDebug(inputs: Record<string, string>): Record<string, string> {

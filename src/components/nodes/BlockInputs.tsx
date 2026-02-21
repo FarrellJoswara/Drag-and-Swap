@@ -806,6 +806,37 @@ function InputWithSourceSelector(props: BlockInputProps) {
     )
   }
 
+  // Upstream with a source selected but no output selector (e.g. Output Display: choose source only; fields chosen elsewhere)
+  if (mode === 'upstream' && connectionInfo && !props.onSourceOutputChange) {
+    const sourceIndex = connectionInfo.sourceNodeId
+      ? availableDataSources.findIndex((s) => s.nodeId === connectionInfo.sourceNodeId) + 1
+      : 0
+    const sourceLabel = connectionInfo.sourceBlockLabel
+      ? (sourceIndex ? `${sourceIndex}. ${connectionInfo.sourceBlockLabel}` : connectionInfo.sourceBlockLabel)
+      : 'Source'
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          {labelRow}
+          <SourceCirclePopover
+            open={modeOpen}
+            onOpenChange={setModeOpen}
+            onManual={setManual}
+            onSelectSource={onSelectSource}
+            availableDataSources={availableDataSources}
+          >
+            <div
+              className={`flex-1 min-w-0 pr-7 flex items-center px-2.5 py-1.5 rounded border bg-slate-800/50 border-slate-600 text-slate-300 text-xs truncate ${focus}`}
+              title={sourceLabel}
+            >
+              {sourceLabel}
+            </div>
+          </SourceCirclePopover>
+        </div>
+      </div>
+    )
+  }
+
   if (mode === 'manual' && showCircle) {
     return (
       <div className="flex flex-col gap-1">

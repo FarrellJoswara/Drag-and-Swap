@@ -2,6 +2,10 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Hyperliquid triggers
+
+Order fill alert, Filter by user, TWAP fill notifier, Liquidation alert, and the other Hyperliquid stream blocks are **standalone triggers**: they subscribe to the stream themselves and do not need a separate "Hyperliquid Stream" block. You can remove any Hyperliquid Stream node that was only used to feed these blocks. Edges from a Hyperliquid Stream into these blocks have no effect.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh

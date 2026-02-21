@@ -35,7 +35,11 @@ import {
   subscribe,
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
-import { recordVolumeAndCheckSpike } from '../services/hyperliquid/streamTriggerHandlers'
+import {
+  getFilterSpecForStreamTrigger,
+  createStreamTriggerCallback,
+  recordVolumeAndCheckSpike,
+} from '../services/hyperliquid/streamTriggerHandlers'
 import { getAllMids } from '../services/hyperliquid/info'
 import type { RunContext } from './runAgent'
 
@@ -87,6 +91,7 @@ import {
   timeLoop,
   generalComparator,
   delay,
+  transformDataType,
   // numericRangeFilter,
   // stringMatchFilter,
   // rateLimitFilter,
@@ -372,154 +377,248 @@ registerBlock({
   },
 })
 
+/**
+ * Shared subscribe helper for reskinned Hyperliquid stream blocks.
+ * Builds filter spec from block type + inputs, then subscribes with createStreamTriggerCallback.
+ */
+function subscribeReskinnedStream(
+  blockType: string,
+  streamType: HyperliquidStreamType,
+  inputs: Record<string, string>,
+  onTrigger: (outputs: Record<string, string>) => void,
+  context?: RunContext,
+): () => void {
+  const spec = getFilterSpecForStreamTrigger(blockType, inputs, streamType)
+  let filters: ReturnType<typeof buildFiltersFromSpec>
+  try {
+    filters = buildFiltersFromSpec(streamType, spec)
+  } catch (e) {
+    console.warn('[subscribeReskinnedStream] buildFiltersFromSpec failed:', blockType, e)
+    return () => {}
+  }
+  const validation = validateFilterLimits(streamType, filters)
+  if (!validation.valid) {
+    console.warn('[subscribeReskinnedStream] Filter validation:', blockType, validation.errors?.join('; '))
+  }
+  const callback = createStreamTriggerCallback(streamType, blockType, inputs, onTrigger, context)
+  return subscribe(streamType, filters, callback)
+}
+
 // ─── Stream Triggers (subscribe with filters; connect from Hyperliquid Stream) ───
 
 registerBlock({
   type: 'liquidationAlert',
   label: 'Liquidation alert',
-  description: 'Only pass when the event is a liquidation. Connect to Hyperliquid Stream (trades).',
-  category: 'streamTriggers',
+  description: 'Only pass when the event is a liquidation. Subscribes to the trades stream (liquidation filter).',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'emerald',
   icon: 'activity',
-  inputs: [
-    {
-      name: 'data',
-      label: 'Connect to Stream',
-      type: 'textarea',
-      placeholder: 'Connect output from Hyperliquid Stream (trades)',
-      rows: 1,
-      allowVariable: true,
-      accepts: ['json', 'string'],
-    },
-  ],
+  inputs: [],
   outputs: getHyperliquidStreamOutputs('trades'),
-  run: async (inputs) => {
-    // Pass-through: when this block is the trigger, runAgent uses subscription outputs; run() used for manual run or passthrough.
-    return { ...inputs }
-  },
+  run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('liquidationAlert', 'trades', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'filterByUser',
   label: 'Filter by user(s)',
-  description: 'Only events for the given wallet address(es). Connect to Stream (trades or orders).',
-  category: 'streamTriggers',
+  description: 'Only trades for the given wallet address(es). Subscribes to the trades stream.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'blue',
   icon: 'users',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
-    { name: 'users', label: 'User address(es)', type: 'textarea', placeholder: '0x... or comma-separated', rows: 1 },
+    {
+      name: 'user',
+      label: 'User address(es)',
+      type: 'address',
+      placeholder: '0x... or comma-separated for multiple',
+      allowVariable: true,
+    },
   ],
   outputs: getHyperliquidStreamOutputs('trades'),
   run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('filterByUser', 'trades', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'twapFillNotifier',
   label: 'TWAP fill notifier',
-  description: 'TWAP execution updates. Connect to Hyperliquid Stream (TWAP Status Alert).',
-  category: 'streamTriggers',
+  description: 'TWAP execution updates. Subscribes to the TWAP stream. Optionally filter by user.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'violet',
   icon: 'trending-up',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (twap)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
-    { name: 'users', label: 'User address(es) (optional)', type: 'textarea', placeholder: 'Filter by user', rows: 1 },
+    {
+      name: 'user',
+      label: 'User address(es) (optional)',
+      type: 'address',
+      placeholder: '0x... or comma-separated',
+      allowVariable: true,
+    },
   ],
   outputs: getHyperliquidStreamOutputs('twap'),
   run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('twapFillNotifier', 'twap', inputs, onTrigger, context),
 })
+
+const ORDER_STREAM_TOKENS = ['BTC', 'ETH', 'SOL', 'HYPE', 'ARB', 'OP', 'DOGE', 'AVAX', 'LINK', 'MATIC', 'UNI', 'ATOM', 'LTC', 'XRP', 'ADA', 'DOT', 'AAVE', 'CRV', 'MKR', 'SNX']
 
 registerBlock({
   type: 'orderFillAlert',
   label: 'Order fill alert',
-  description: 'Order fill events. Connect to Hyperliquid Stream (Order Fill Alert / orders).',
-  category: 'streamTriggers',
+  description: 'Order fill events. Subscribes to the orders stream. Optionally filter by coin, user, or side.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'amber',
   icon: 'check-circle',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (orders)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    {
+      name: 'coin',
+      label: 'Filter: Coin',
+      type: 'tokenSelect',
+      tokens: ORDER_STREAM_TOKENS,
+      placeholder: 'All coins',
+      allowVariable: true,
+    },
+    {
+      name: 'user',
+      label: 'Filter: User address(es)',
+      type: 'address',
+      placeholder: '0x... or comma-separated for multiple',
+      allowVariable: true,
+    },
+    {
+      name: 'side',
+      label: 'Filter: Side',
+      type: 'select',
+      options: ['Both', 'B', 'A'],
+      defaultValue: 'Both',
+      optionDescriptions: {
+        Both: 'No side filter',
+        B: 'Bid / buy only',
+        A: 'Ask / sell only',
+      },
+    },
   ],
   outputs: getHyperliquidStreamOutputs('orders'),
   run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('orderFillAlert', 'orders', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'newOrderAlert',
   label: 'New order alert',
-  description: 'New order events. Connect to Hyperliquid Stream (orders).',
-  category: 'streamTriggers',
+  description: 'New order events. Subscribes to the orders stream. Optionally filter by coin, user, or side.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'amber',
   icon: 'plus-circle',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (orders)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    {
+      name: 'coin',
+      label: 'Filter: Coin',
+      type: 'tokenSelect',
+      tokens: ORDER_STREAM_TOKENS,
+      placeholder: 'All coins',
+      allowVariable: true,
+    },
+    {
+      name: 'user',
+      label: 'Filter: User address(es)',
+      type: 'address',
+      placeholder: '0x... or comma-separated for multiple',
+      allowVariable: true,
+    },
+    {
+      name: 'side',
+      label: 'Filter: Side',
+      type: 'select',
+      options: ['Both', 'B', 'A'],
+      defaultValue: 'Both',
+      optionDescriptions: {
+        Both: 'No side filter',
+        B: 'Bid / buy only',
+        A: 'Ask / sell only',
+      },
+    },
   ],
   outputs: getHyperliquidStreamOutputs('orders'),
   run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('newOrderAlert', 'orders', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'depositWithdrawalAlert',
   label: 'Deposit / withdrawal alert',
-  description: 'Deposit and withdrawal events. Connect to Hyperliquid Stream (Events Monitor).',
-  category: 'streamTriggers',
+  description: 'Deposit and withdrawal events. Subscribes to the events stream (Deposit & Withdrawal only).',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'rose',
   icon: 'arrow-down-up',
-  inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (events)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
-  ],
+  inputs: [],
   outputs: getHyperliquidStreamOutputs('events'),
   run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('depositWithdrawalAlert', 'events', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'fundingRateAlert',
   label: 'Funding rate alert',
-  description: 'Funding rate events. Connect to Hyperliquid Stream (Events Monitor).',
-  category: 'streamTriggers',
+  description: 'Funding rate events. Subscribes to the events stream (Funding only).',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'rose',
   icon: 'percent',
-  inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (events)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
-  ],
+  inputs: [],
   outputs: getHyperliquidStreamOutputs('events'),
   run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('fundingRateAlert', 'events', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'writerActionMonitor',
   label: 'Writer action monitor',
-  description: 'HyperCore ↔ HyperEVM bridge/transfer events. Connect to Hyperliquid Stream (Writer Actions).',
-  category: 'streamTriggers',
+  description: 'HyperCore ↔ HyperEVM bridge/transfer events. Subscribes to the writer_actions stream. Optionally filter by user.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'blue',
   icon: 'repeat',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (writer_actions)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
-    { name: 'users', label: 'User address(es) (optional)', type: 'textarea', placeholder: 'Filter by user', rows: 1 },
+    {
+      name: 'user',
+      label: 'User address(es) (optional)',
+      type: 'address',
+      placeholder: '0x... or comma-separated',
+      allowVariable: true,
+    },
   ],
   outputs: getHyperliquidStreamOutputs('writer_actions'),
   run: async (inputs) => ({ ...inputs }),
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('writerActionMonitor', 'writer_actions', inputs, onTrigger, context),
 })
 
-// ─── Hybrid stream triggers (filter in run(); connect to Stream trades) ───
+// ─── Hybrid stream triggers (filter in run(); subscribe to trades) ───
 
 registerBlock({
   type: 'largeTradeAlert',
   label: 'Large trade alert',
-  description: 'Only pass when trade size meets or exceeds minimum. Connect to Hyperliquid Stream (trades).',
-  category: 'streamTriggers',
+  description: 'Only pass when trade size meets or exceeds minimum. Subscribes to the trades stream.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'amber',
   icon: 'activity',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (trades)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
     { name: 'minSize', label: 'Min size', type: 'number', placeholder: 'e.g. 1', defaultValue: '1' },
   ],
   outputs: getHyperliquidStreamOutputs('trades'),
@@ -529,18 +628,19 @@ registerBlock({
     const passed = minSize > 0 && size >= minSize
     return { ...inputs, passed: passed ? 'true' : 'false' }
   },
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('largeTradeAlert', 'trades', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'priceCross',
   label: 'Price cross alert',
-  description: 'Only pass when price crosses above or below a level. Connect to Hyperliquid Stream (trades).',
-  category: 'streamTriggers',
+  description: 'Only pass when price crosses above or below a level. Subscribes to the trades stream.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'violet',
   icon: 'activity',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (trades)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
     { name: 'direction', label: 'Direction', type: 'select', options: ['above', 'below'], defaultValue: 'above' },
     { name: 'priceLevel', label: 'Price level', type: 'number', placeholder: 'e.g. 50000' },
   ],
@@ -556,18 +656,19 @@ registerBlock({
     }
     return { ...inputs, passed: passed ? 'true' : 'false' }
   },
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('priceCross', 'trades', inputs, onTrigger, context),
 })
 
 registerBlock({
   type: 'volumeSpike',
   label: 'Volume spike alert',
-  description: 'Only pass when volume in the time window meets or exceeds threshold. Connect to Hyperliquid Stream (trades).',
-  category: 'streamTriggers',
+  description: 'Only pass when volume in the time window meets or exceeds threshold. Subscribes to the trades stream.',
+  category: 'trigger',
   service: 'hyperliquid',
   color: 'rose',
   icon: 'barChart',
   inputs: [
-    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (trades)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
     { name: 'windowSeconds', label: 'Window (seconds)', type: 'number', placeholder: '60', defaultValue: '60' },
     { name: 'volumeThreshold', label: 'Volume threshold', type: 'number', placeholder: '100' },
   ],
@@ -580,6 +681,8 @@ registerBlock({
     const passed = recordVolumeAndCheckSpike(context?.agentId, context?.nodeId, windowMs, threshold, size)
     return { ...inputs, passed: passed ? 'true' : 'false' }
   },
+  subscribe: (inputs, onTrigger, context) =>
+    subscribeReskinnedStream('volumeSpike', 'trades', inputs, onTrigger, context),
 })
 
 // ─── General Comparator ────────────────────────────────────────
@@ -761,19 +864,40 @@ registerBlock({
 
 // ─── General Filter Block ───────────────────────────────
 
+function inferOutputType(v: unknown): 'string' | 'number' | 'address' | 'json' | 'boolean' {
+  if (v === null || v === undefined) return 'string'
+  if (typeof v === 'number') return 'number'
+  if (typeof v === 'boolean') return 'boolean'
+  if (typeof v === 'object') return 'json'
+  return 'string'
+}
+
 function getGeneralFilterOutputs(inputs: Record<string, string>): { name: string; label: string; type?: 'string' | 'number' | 'address' | 'json' | 'boolean' }[] {
   const fieldsRaw = (inputs.fields ?? '').trim()
+  let sample: Record<string, unknown> | null = null
+  const dataRaw = (inputs.data ?? '').trim()
+  if (dataRaw) {
+    try {
+      const parsed = JSON.parse(dataRaw)
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) sample = parsed
+    } catch {
+      /* ignore */
+    }
+  }
   if (fieldsRaw) {
     try {
       const arr = JSON.parse(fieldsRaw)
       if (Array.isArray(arr) && arr.length > 0) {
         const names = arr.filter((x): x is string => typeof x === 'string')
         if (names.length > 0) {
-          return names.map((key) => ({
-            name: key,
-            label: key.charAt(0).toUpperCase() + key.slice(1),
-            type: 'string' as const,
-          }))
+          return names.map((key) => {
+            const type = sample && key in sample ? inferOutputType(sample[key]) : 'string'
+            return {
+              name: key,
+              label: key.charAt(0).toUpperCase() + key.slice(1),
+              type,
+            }
+          })
         }
       }
     } catch {
@@ -781,6 +905,13 @@ function getGeneralFilterOutputs(inputs: Record<string, string>): { name: string
     }
   }
   return [{ name: 'filtered', label: 'Filtered (JSON)', type: 'json' }]
+}
+
+/** Serialize a value so the output string can be parsed back to the same type (primitives as string form, objects/arrays as JSON). */
+function toOutputValue(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
 }
 
 function runGeneralFilter(inputs: Record<string, string>): Promise<Record<string, string>> {
@@ -807,11 +938,17 @@ function runGeneralFilter(inputs: Record<string, string>): Promise<Record<string
     return result
   }
 
+  const buildResult = (obj: Record<string, unknown>): Record<string, string> => {
+    const result: Record<string, string> = {}
+    for (const [k, v] of Object.entries(obj)) {
+      result[k] = toOutputValue(v)
+    }
+    return filterKeys(result)
+  }
+
   if (typeof raw !== 'string') {
     const obj = raw as Record<string, unknown>
-    const result: Record<string, string> = {}
-    for (const k of Object.keys(obj)) result[k] = String(obj[k] ?? '')
-    return Promise.resolve(filterKeys(result))
+    return Promise.resolve(buildResult(obj))
   }
   if (!raw.trim()) {
     return Promise.resolve({ filtered: '' })
@@ -819,11 +956,7 @@ function runGeneralFilter(inputs: Record<string, string>): Promise<Record<string
   try {
     const parsed = JSON.parse(raw)
     if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const result: Record<string, string> = {}
-      for (const [k, v] of Object.entries(parsed)) {
-        result[k] = v == null ? '' : String(v)
-      }
-      return Promise.resolve(filterKeys(result))
+      return Promise.resolve(buildResult(parsed as Record<string, unknown>))
     }
   } catch {
     /* ignore */
@@ -872,7 +1005,7 @@ const LIVE_PRICE_TOKENS = [
 registerBlock({
   type: 'liveTokenPrice',
   label: 'Live Token Price',
-  description: 'Poll Hyperliquid mid price for a token at a set interval and run downstream.',
+  description: 'Real-time price via stream (every trade) or poll mid at an interval. Use Stream for maximum detail.',
   category: 'trigger',
   service: 'hyperliquid',
   color: 'emerald',
@@ -886,12 +1019,23 @@ registerBlock({
       defaultValue: 'BTC',
     },
     {
+      name: 'source',
+      label: 'Source',
+      type: 'select',
+      options: ['Stream', 'Poll'],
+      defaultValue: 'Stream',
+      optionDescriptions: {
+        Stream: 'Every trade (real-time). Requires VITE_QUICKNODE_HYPERLIQUID_WS_URL.',
+        Poll: 'Mid price from API at a fixed interval.',
+      },
+    },
+    {
       name: 'intervalSeconds',
-      label: 'Interval (seconds)',
+      label: 'Poll interval (seconds)',
       type: 'number',
-      placeholder: '5',
-      defaultValue: '5',
-      min: 1,
+      placeholder: '1',
+      defaultValue: '1',
+      min: 0.5,
       max: 3600,
     },
   ],
@@ -900,6 +1044,10 @@ registerBlock({
     { name: 'coin', label: 'Coin', type: 'string' },
     { name: 'timestamp', label: 'Timestamp', type: 'string' },
   ],
+  getVisibleInputs: (inputs) => {
+    const src = (inputs.source ?? 'Stream').trim()
+    return src === 'Poll' ? ['coin', 'source', 'intervalSeconds'] : ['coin', 'source']
+  },
   run: async (inputs) => {
     const coin = (inputs.coin ?? 'BTC').trim() || 'BTC'
     const mids = await getAllMids()
@@ -909,9 +1057,29 @@ registerBlock({
   },
   subscribe: (inputs, onTrigger) => {
     const coin = (inputs.coin ?? 'BTC').trim() || 'BTC'
-    const seconds = Math.max(1, Math.min(3600, Number(inputs.intervalSeconds) || 5))
-    const ms = seconds * 1000
+    const source = (inputs.source ?? 'Stream').trim() as string
 
+    if (source === 'Stream') {
+      const filters = buildFiltersFromSpec('trades', { coin: [coin] })
+      const unsub = subscribe('trades', filters, (msg) => {
+        const events = msg.data?.events ?? []
+        if (!Array.isArray(events)) return
+        for (const ev of events) {
+          try {
+            const out = normalizeStreamEventToUnifiedOutputs('trades', ev, msg)
+            const price = out.price ?? '0'
+            const ts = out.timestamp ?? String(Date.now())
+            onTrigger({ price, coin, timestamp: ts })
+          } catch (e) {
+            console.warn('[liveTokenPrice] normalize trade failed:', e)
+          }
+        }
+      })
+      return unsub
+    }
+
+    const seconds = Math.max(0.5, Math.min(3600, Number(inputs.intervalSeconds) || 1))
+    const ms = Math.round(seconds * 1000)
     const id = setInterval(async () => {
       try {
         const mids = await getAllMids()
@@ -956,6 +1124,52 @@ registerBlock({
     const value = Number.isFinite(num) ? String(num) : '0'
     const timestamp = String(Date.now())
     return { lastValue: value, lastTimestamp: timestamp }
+  },
+})
+
+// ─── Transform Data Type ───────────────────────────────────
+
+registerBlock({
+  type: 'transformDataType',
+  label: 'Transform Data Type',
+  description: 'Convert the input value to a chosen data type: Number, String, Boolean, or JSON. Use to connect string/JSON outputs (e.g. token price) to number inputs like Graph Display.',
+  category: 'filter',
+  color: 'yellow',
+  icon: 'arrow-down-up',
+  inputs: [
+    {
+      name: 'value',
+      label: 'Value',
+      type: 'text',
+      placeholder: 'Connect any value',
+      allowVariable: true,
+      accepts: ['string', 'json', 'number', 'boolean'],
+    },
+    {
+      name: 'targetType',
+      label: 'Output data type',
+      type: 'select',
+      options: ['number', 'string', 'boolean', 'json'],
+      defaultValue: 'number',
+      optionDescriptions: {
+        number: 'Parse as number (e.g. for Graph Display)',
+        string: 'Keep or coerce to string',
+        boolean: 'Convert to true/false (truthy/falsy)',
+        json: 'Parse and re-serialize as JSON',
+      },
+    },
+  ],
+  outputs: [
+    { name: 'value', label: 'Value', type: 'string' },
+  ],
+  getOutputs: (inputs): { name: string; label: string; type?: 'string' | 'number' | 'address' | 'json' | 'boolean' }[] => {
+    const t = (inputs.targetType ?? 'number').toLowerCase()
+    const type = t === 'number' || t === 'string' || t === 'boolean' || t === 'json' ? t : 'string'
+    return [{ name: 'value', label: 'Value', type }]
+  },
+  run: async (inputs): Promise<Record<string, string>> => {
+    const out = transformDataType(inputs.value ?? '', inputs.targetType ?? 'number')
+    return { value: out }
   },
 })
 

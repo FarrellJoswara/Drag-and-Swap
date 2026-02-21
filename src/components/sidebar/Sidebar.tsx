@@ -198,11 +198,10 @@ export default function Sidebar() {
 
   const noBlocks = useMemo(() => {
     const hasTriggers = filterBlocks(getBlocksByCategory('trigger'), query).length > 0
-    const hasStreamTriggers = filterBlocks(getBlocksByCategory('streamTriggers'), query).length > 0
     const hasActions = filterBlocks(getBlocksByCategory('action'), query).length > 0
     const hasFilters = filterBlocks(getBlocksByCategory('filter'), query).length > 0
     const hasDisplay = filterBlocks(getBlocksByCategory('display'), query).length > 0
-    return !hasTriggers && !hasStreamTriggers && !hasActions && !hasFilters && !hasDisplay
+    return !hasTriggers && !hasActions && !hasFilters && !hasDisplay
   }, [query])
   const noVariables = filteredVariables.length === 0 && variables.length === 0
 
@@ -248,12 +247,6 @@ export default function Sidebar() {
           title="Triggers"
           icon={<Zap size={11} />}
           category="trigger"
-          query={query}
-        />
-        <CollapsibleCategorySection
-          title="Stream Triggers"
-          icon={<Zap size={11} />}
-          category="streamTriggers"
           query={query}
         />
         <CollapsibleCategorySection

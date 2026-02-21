@@ -469,7 +469,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                 color={definition.color}
                 connectionInfo={connectionInfoByInput[field.name]}
                 onSourceOutputChange={
-                  connectionInfoByInput[field.name]
+                  connectionInfoByInput[field.name] &&
+                  !(blockType === 'streamDisplay' && field.name === 'data')
                     ? (outputName) => onSourceOutputChange(field.name, outputName)
                     : undefined
                 }
@@ -495,7 +496,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               color={definition.color}
               connectionInfo={connectionInfoByInput[field.name]}
               onSourceOutputChange={
-                connectionInfoByInput[field.name]
+                connectionInfoByInput[field.name] &&
+                !(blockType === 'streamDisplay' && field.name === 'data')
                   ? (outputName) => onSourceOutputChange(field.name, outputName)
                   : undefined
               }
@@ -545,7 +547,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               Run Once
             </button>
           ) : (
-            definition.inputs.filter((f) => !hiddenInputNames.has(f.name)).map((field) => {
+            definition.inputs.filter((f) => !hiddenInputNames.has(f.name) && isVisible(f.name)).map((field) => {
               const isFieldsSelector =
                 (blockType === 'streamDisplay' || blockType === 'generalFilter') && field.name === 'fields'
               if (isFieldsSelector) {
@@ -616,7 +618,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   color={definition.color}
                   connectionInfo={connectionInfoByInput[field.name]}
                   onSourceOutputChange={
-                    connectionInfoByInput[field.name]
+                    connectionInfoByInput[field.name] &&
+                    !(blockType === 'streamDisplay' && field.name === 'data')
                       ? (outputName) => onSourceOutputChange(field.name, outputName)
                       : undefined
                   }
@@ -691,6 +694,27 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
               time: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
               value: p.value,
             }))
+            const values = chartData.map((d) => d.value)
+            const minVal = values.length ? Math.min(...values) : 0
+            const maxVal = values.length ? Math.max(...values) : 1
+            const range = maxVal - minVal
+            const padding = range > 0 ? range * 0.05 : Math.abs(minVal) * 0.01 || 1
+            const yDomain: [number, number] = values.length
+              ? [minVal - padding, maxVal + padding]
+              : [0, 1]
+            const formatY = (v: number) => {
+              if (range > 0 && range < 1) return v.toFixed(4)
+              if (range >= 1 && range < 100) return v.toFixed(2)
+              if (range >= 100 && range < 10000) return v.toFixed(2)
+              return v >= 1000 ? `${(v / 1000).toFixed(2)}k` : String(v)
+            }
+            const formatExact = (v: number) => {
+              if (!Number.isFinite(v)) return '—'
+              if (Number.isInteger(v)) return String(v)
+              const s = v.toFixed(12)
+              return s.replace(/\.?0+$/, '')
+            }
+            const lastValue = series.length ? series[series.length - 1].value : null
             return (
               <ResizablePanel
                 height={graphHeight}
@@ -710,13 +734,20 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                         Chart
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      className="nodrag nopan text-[9px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors"
-                      onClick={() => clearSeries(displayAgentIdForValue, id)}
-                    >
-                      Clear
-                    </button>
+                    <>
+                      {lastValue != null && (
+                        <span className="text-[10px] font-mono text-slate-300 truncate" title={formatExact(lastValue)}>
+                          {formatExact(lastValue)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="nodrag nopan text-[9px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors"
+                        onClick={() => clearSeries(displayAgentIdForValue, id)}
+                      >
+                        Clear
+                      </button>
+                    </>
                   </div>
                   <div className="flex-1 min-h-0 min-w-0" style={{ width: graphWidth, height: graphHeight - 28 }}>
                     {chartData.length === 0 ? (
@@ -736,13 +767,17 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                           <YAxis
                             tick={{ fontSize: 9, fill: '#94a3b8' }}
                             stroke="#475569"
-                            domain={['auto', 'auto']}
-                            tickFormatter={(v) => (Number(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))}
+                            domain={yDomain}
+                            tickFormatter={(v) => formatY(Number(v))}
+                            width={40}
                           />
                           <Tooltip
                             contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', fontSize: 10 }}
                             labelStyle={{ color: '#94a3b8' }}
-                            formatter={(value: number | undefined) => [value ?? 0, 'Value']}
+                            formatter={(value: number | undefined) => {
+                              const v = value ?? 0
+                              return [formatExact(v), 'Value']
+                            }}
                             labelFormatter={(label) => `Time: ${label}`}
                           />
                           <Line

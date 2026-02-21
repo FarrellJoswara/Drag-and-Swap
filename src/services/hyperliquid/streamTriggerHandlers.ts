@@ -1,7 +1,9 @@
 /**
  * Stream-trigger filter blocks: filter specs for subscription and hybrid run logic.
- * Used by runAgent when a stream-trigger block is connected to the Hyperliquid Stream block.
- * Order-book imbalance and spread monitoring will be implemented later when book snapshot or equivalent is available.
+ * Reskinned Hyperliquid blocks (Order fill alert, Filter by user, TWAP fill notifier, etc.) in blocks.ts
+ * call getFilterSpecForStreamTrigger and createStreamTriggerCallback from their subscribe() to subscribe
+ * directly to the stream with the right filters. Order-book imbalance and spread monitoring will be
+ * implemented later when book snapshot or equivalent is available.
  */
 
 import type { UnifiedFilterSpec, HyperliquidStreamType, HyperliquidStreamMessage } from './types'
@@ -88,10 +90,18 @@ export function getFilterSpecForStreamTrigger(
       }
       break
     case STREAM_TRIGGER_BLOCK_TYPES.orderFillAlert:
-      // Orders stream: server may support status filter; empty = all order events
+    case STREAM_TRIGGER_BLOCK_TYPES.newOrderAlert: {
+      // Orders stream: optional coin, user, side from inputs
+      const coinVal = (inputs.coin ?? '').trim()
+      if (coinVal && !isVariablePlaceholder(coinVal)) spec.coin = [coinVal]
+      const users = parseCommaSeparated(inputs.users ?? inputs.user, FILTER_LIMITS.maxUserValues).filter(
+        (u) => !isVariablePlaceholder(u)
+      )
+      if (users.length) spec.user = users
+      const sideVal = (inputs.side ?? 'Both').trim()
+      if (sideVal && sideVal !== 'Both' && !isVariablePlaceholder(sideVal)) spec.side = [sideVal]
       break
-    case STREAM_TRIGGER_BLOCK_TYPES.newOrderAlert:
-      break
+    }
     case STREAM_TRIGGER_BLOCK_TYPES.depositWithdrawalAlert:
       // Events stream: filter by deposit/withdrawal types
       spec.type = ['Deposit', 'Withdrawal']
@@ -113,67 +123,6 @@ export function getFilterSpecForStreamTrigger(
       break
     default:
       break
-  }
-
-  return spec
-}
-
-/**
- * Build Stream block spec from Stream node data (same rules as Stream block subscribe).
- * Skip variable placeholders. Then merge with streamTriggerSpec (stream-trigger keys override/add).
- */
-export function mergeWithStreamSpec(
-  streamNodeData: Record<string, unknown>,
-  streamTriggerSpec: UnifiedFilterSpec
-): UnifiedFilterSpec {
-  const data = streamNodeData as Record<string, string>
-  const filtersEnabled = (data.filtersEnabled ?? 'true') !== 'false'
-  const rawStreamType = (data.streamType ?? 'trades').trim()
-  const streamType = normalizeStreamType(rawStreamType)
-
-  const spec: UnifiedFilterSpec = { ...streamTriggerSpec }
-
-  if (!filtersEnabled) return spec
-
-  const coinVal = (data.coin ?? '').trim()
-  if (coinVal && !isVariablePlaceholder(coinVal)) spec.coin = [coinVal]
-
-  const userArr = parseCommaSeparated(data.user, FILTER_LIMITS.maxUserValues).filter(
-    (u) => !isVariablePlaceholder(u)
-  )
-  if (userArr.length) spec.user = userArr
-
-  const eventTypeRaw = (data.eventType ?? 'All').trim()
-  const eventTypeVal = eventTypeRaw === 'All' ? '' : eventTypeRaw
-  if (eventTypeVal && !isVariablePlaceholder(eventTypeVal)) spec.type = [eventTypeVal]
-
-  if (data.side && data.side !== 'Both' && !isVariablePlaceholder(data.side)) {
-    if (streamType === 'trades' || streamType === 'orders' || streamType === 'book_updates') {
-      spec.side = [data.side]
-    }
-  }
-
-  const preset = (data.filterPreset ?? 'None').trim()
-  if (streamType === 'trades' && preset === 'Liquidations only') spec.liquidation = ['*']
-  if (streamType === 'trades' && preset === 'TWAP only') spec.twapId = ['*']
-
-  const extraRaw = (data.extraFilters ?? '').trim()
-  if (extraRaw) {
-    try {
-      const extra = JSON.parse(extraRaw) as Record<string, unknown>
-      if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
-        for (const [k, v] of Object.entries(extra)) {
-          if (Array.isArray(v)) {
-            const arr = v.map((x) => String(x).trim()).filter((x) => Boolean(x) && !isVariablePlaceholder(x))
-            if (arr.length) spec[k] = arr
-          } else if (v != null && v !== '' && !isVariablePlaceholder(String(v))) {
-            spec[k] = [String(v).trim()]
-          }
-        }
-      }
-    } catch {
-      // ignore invalid extraFilters
-    }
   }
 
   return spec
