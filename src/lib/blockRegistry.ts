@@ -43,6 +43,7 @@ import {
 //   tokenSelect  → rich token picker for DeFi tokens
 //   variable     → dropdown referencing outputs from other blocks
 //   keyValue     → dynamic list of key/value pairs
+//   password     → single-line masked input (e.g. API keys, bot tokens)
 
 export type InputFieldType =
   | 'text'
@@ -56,6 +57,7 @@ export type InputFieldType =
   | 'tokenSelect'
   | 'variable'
   | 'keyValue'
+  | 'password'
 
 export interface InputField {
   name: string

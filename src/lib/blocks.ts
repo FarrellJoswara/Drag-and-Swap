@@ -1732,19 +1732,15 @@ registerBlock({
 
 // ─── Telegram message trigger (get updates) ───────────────────────────────
 
-/** Server uses TELEGRAM_BOT_TOKEN; client never receives the token. */
-function getAppTelegramBotToken(): string {
-  return ''
-}
-
 registerBlock({
   type: 'telegramMessageTrigger',
   label: 'Get Telegram',
-  description: 'Trigger when your bot receives a message. Optionally filter by chat or by sender handle (@username).',
+  description: 'Trigger when your bot receives a message. Paste your bot token from @BotFather (hidden). Optionally filter by chat or sender.',
   category: 'trigger',
   color: 'blue',
   icon: 'messageSquare',
   inputs: [
+    { name: 'botToken', label: 'Bot token', type: 'password', placeholder: 'From @BotFather (e.g. 123456789:ABCdef...)' },
     { name: 'chatIdFilter', label: 'Chat ID filter (optional)', type: 'text', placeholder: 'Only trigger for this chat; leave empty for all' },
     { name: 'fromHandleFilter', label: 'From handle (optional)', type: 'text', placeholder: '@username or username — only messages from this user' },
     { name: 'pollIntervalSeconds', label: 'Poll interval (seconds)', type: 'number', placeholder: '5', defaultValue: '5', min: 2, max: 60 },
@@ -1759,7 +1755,7 @@ registerBlock({
     { name: 'messageId', label: 'Message ID', type: 'string' },
     { name: 'date', label: 'Date (Unix)', type: 'string' },
   ],
-  getVisibleInputs: () => ['chatIdFilter', 'fromHandleFilter', 'pollIntervalSeconds'],
+  getVisibleInputs: () => ['botToken', 'chatIdFilter', 'fromHandleFilter', 'pollIntervalSeconds'],
   run: async () => ({
     messageText: '',
     chatId: '',
@@ -1771,7 +1767,7 @@ registerBlock({
     date: '',
   }),
   subscribe: (inputs, onTrigger) => {
-    const botToken = getAppTelegramBotToken()
+    const botToken = (inputs.botToken ?? '').trim()
     return startTelegramMessagePolling(
       botToken,
       {
@@ -1789,11 +1785,12 @@ registerBlock({
 registerBlock({
   type: 'sendTelegram',
   label: 'Send Telegram',
-  description: 'Send a message via the app Telegram bot. Use Chat ID (from @userinfobot) or @handle to message a user or channel.',
+  description: 'Send a message via your Telegram bot. Paste your bot token from @BotFather (hidden); use Chat ID or @handle for the recipient.',
   category: 'action',
   color: 'blue',
   icon: 'messageSquare',
   inputs: [
+    { name: 'botToken', label: 'Bot token', type: 'password', placeholder: 'From @BotFather (e.g. 123456789:ABCdef...)' },
     { name: 'chatId', label: 'Chat ID or @handle', type: 'text', placeholder: 'e.g. -1001234567890 or @username', allowVariable: true },
     { name: 'message', label: 'Message', type: 'textarea', rows: 3, placeholder: 'Type text or connect a data source (e.g. Get Telegram → messageText)', allowVariable: true },
   ],
@@ -1802,11 +1799,11 @@ registerBlock({
     { name: 'status', label: 'Status', type: 'string' },
     { name: 'response', label: 'Response', type: 'json' },
   ],
-  getVisibleInputs: () => ['chatId', 'message'],
+  getVisibleInputs: () => ['botToken', 'chatId', 'message'],
   run: async (inputs) =>
     sendTelegram({
       ...inputs,
-      botToken: getAppTelegramBotToken(),
+      botToken: (inputs.botToken ?? '').trim(),
       useCorsProxy: 'true',
     }),
 })

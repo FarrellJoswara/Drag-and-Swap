@@ -23,6 +23,9 @@ export async function sendTelegram(inputs: Record<string, string>): Promise<Reco
   const botToken = (inputs.botToken ?? '').trim()
   const chatId = (inputs.chatId ?? '').trim()
   const text = (inputs.message ?? '').trim()
+  if (!botToken) {
+    throw new Error('Telegram: bot token is required. Paste your token from @BotFather in the Bot token field.')
+  }
   if (!chatId) {
     throw new Error('Telegram: chat ID is required. Connect Get Telegram\'s chatId to Send Telegram\'s Chat ID to reply to the same chat.')
   }
@@ -30,7 +33,7 @@ export async function sendTelegram(inputs: Record<string, string>): Promise<Reco
     throw new Error('Telegram: message cannot be empty. Enter text or connect Get Telegram\'s messageText.')
   }
   const parseMode = inputs.parseMode || 'HTML'
-  const body = { ...(botToken && { botToken }), chatId, message: text, parseMode }
+  const body = { botToken, chatId, message: text, parseMode }
 
   // Server proxy (Vercel) or Vite plugin (local dev) — bypasses CORS
   const apiRes = await fetch('/api/telegram-send', {
@@ -47,10 +50,7 @@ export async function sendTelegram(inputs: Record<string, string>): Promise<Reco
     return { ok: ok ? 'true' : 'false', status: String(apiRes.status), response: JSON.stringify(data) }
   }
 
-  // Fallback: CORS proxy only when client has a token (for local dev when /api is not available)
-  if (!botToken) {
-    throw new Error('Telegram: server token not set. Add TELEGRAM_BOT_TOKEN to Vercel env (or .env.local for local API).')
-  }
+  // Fallback: CORS proxy (for local dev when /api is not available)
   const useCorsProxy = inputs.useCorsProxy !== 'false'
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`
   const tgBody = JSON.stringify({ chat_id: chatId, text, parse_mode: parseMode })

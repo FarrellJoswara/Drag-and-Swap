@@ -152,6 +152,27 @@ function TextInput({ field, value = '', onChange, color, hideLabel }: BlockInput
   )
 }
 
+function PasswordInput({ field, value = '', onChange, color, hideLabel }: BlockInputProps) {
+  const focus = focusColorClass[color]
+  const input = (
+    <input
+      type="password"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={field.placeholder}
+      autoComplete="off"
+      className={`${baseInput(focus)} px-2.5 py-1.5 font-mono text-[11px]`}
+    />
+  )
+  if (hideLabel) return <div className="flex flex-col gap-1">{input}</div>
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+      {input}
+    </div>
+  )
+}
+
 function NumberInput({ field, value = '', onChange, color, suffix, onSuffixClick, hideLabel }: BlockInputProps) {
   const focus = focusColorClass[color]
   const suffixEl = suffix ? (
@@ -631,6 +652,7 @@ const renderers: Record<string, React.FC<BlockInputProps>> = {
   slider: SliderInput,
   tokenSelect: TokenSelectInput,
   keyValue: KeyValueInput,
+  password: PasswordInput,
 }
 
 const CONNECTED_TYPES_WITH_LITERAL = ['text', 'textarea', 'number']
