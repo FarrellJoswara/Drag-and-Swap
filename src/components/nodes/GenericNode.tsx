@@ -1,6 +1,6 @@
 import { Handle, Position, useReactFlow, useEdges, type NodeProps } from '@xyflow/react'
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { Play } from 'lucide-react'
+import { Play, Loader2 } from 'lucide-react'
 import {
   getBlock,
   getBlockIcon,
@@ -12,7 +12,7 @@ import NodeShell from '../ui/NodeShell'
 import ResizablePanel from '../ui/ResizablePanel'
 import SideNode, { SIDE_NODE_DEFAULT_WIDTH } from './node-extension/SideNode'
 import { buildConnectedModel } from '../../utils/buildConnectedModel'
-import { runDownstreamGraph } from '../../lib/runAgent'
+import { runFromNode } from '../../lib/runAgent'
 import { useToast } from '../ui/Toast'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
 import { useSendTransaction } from '../../hooks/useSendTransaction'
@@ -69,6 +69,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const [sidePanelOpen, setSidePanelOpen] = useState<boolean>(
     () => (data.sidePanelOpen as boolean) ?? false,
   )
+  const [runLoading, setRunLoading] = useState(false)
   const setSidePanelOpenAndPersist = useCallback(
     (open: boolean) => {
       setSidePanelOpen(open)
@@ -257,7 +258,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     [id, edges, setEdges],
   )
 
-  const handleManualRun = useCallback(async () => {
+  const handleRunBlock = useCallback(async () => {
     const nodes = getNodes()
     const edges = getEdges()
     const model = buildConnectedModel(nodes, edges)
@@ -266,20 +267,45 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       onDisplayUpdate: (nodeId: string, value: string) =>
         setDisplayValue(displayAgentId, nodeId, value),
     }
+    const context = {
+      walletAddress: walletAddress ?? undefined,
+      sendTransaction: sendTransaction ?? undefined,
+      signTypedData: signTypedData ?? undefined,
+    }
+    setRunLoading(true)
     try {
-      await runDownstreamGraph(
-        model,
-        id,
-        { triggered: 'true' },
-        { walletAddress: walletAddress ?? undefined, sendTransaction: sendTransaction ?? undefined, signTypedData: signTypedData ?? undefined },
-        runOptions,
-      )
-      toast('Agent ran successfully', 'success')
+      await runFromNode(model, id, context, runOptions)
+      toast('Block ran successfully', 'success')
     } catch (err) {
-      console.error('[manualTrigger] Run failed:', err)
+      console.error('[runBlock] Run failed:', err)
       toast(err instanceof Error ? err.message : 'Run failed', 'error')
+    } finally {
+      setRunLoading(false)
     }
   }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, agentId, setDisplayValue])
+
+  const runDisabled = (blockType === 'swap' || blockType === 'getQuote') && !walletAddress
+  const runButton =
+    definition.category === 'action' ? (
+      <button
+        type="button"
+        onClick={handleRunBlock}
+        disabled={runDisabled || runLoading}
+        title={runDisabled ? 'Connect wallet to run' : 'Run this block (and downstream) for testing'}
+        className={[
+          'nodrag flex items-center justify-center w-5 h-5 rounded border transition-colors',
+          runDisabled
+            ? 'bg-slate-700/50 text-slate-500 border-slate-600/60 cursor-not-allowed'
+            : 'bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30 hover:text-amber-300',
+        ].join(' ')}
+      >
+        {runLoading ? (
+          <Loader2 size={10} className="animate-spin" />
+        ) : (
+          <Play size={10} fill="currentColor" />
+        )}
+      </button>
+    ) : null
 
   const mainInputNames = definition.sidePanel
     ? new Set(definition.sidePanel.mainInputNames)
@@ -354,6 +380,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
           badge={definition.category.toUpperCase()}
           badgeColor={definition.color}
           width={blockType === 'streamDisplay' ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220) : undefined}
+          headerAction={runButton}
         >
           <div className="max-h-[320px] overflow-y-auto overflow-x-hidden flex flex-col gap-2 overscroll-contain">
             {isSwapOrQuote && !walletAddress && (
@@ -418,6 +445,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       badge={definition.category.toUpperCase()}
       badgeColor={definition.color}
       width={blockType === 'streamDisplay' ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220) : undefined}
+      headerAction={blockType === 'manualTrigger' ? undefined : runButton}
     >
       <div className="flex flex-col gap-2">
           {connectedSourceLabels.length > 0 && blockType !== 'manualTrigger' && (
@@ -428,7 +456,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
           {blockType === 'manualTrigger' ? (
             <button
               type="button"
-              onClick={handleManualRun}
+              onClick={handleRunBlock}
               className="nodrag w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-amber-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors"
             >
               <Play size={12} fill="currentColor" />

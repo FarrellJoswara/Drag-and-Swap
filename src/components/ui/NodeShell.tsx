@@ -12,6 +12,8 @@ interface NodeShellProps {
   selected?: boolean
   /** When set (e.g. Output Display), use this width instead of default 220px */
   width?: number
+  /** Optional small action (e.g. Run button) shown next to the badge in the header */
+  headerAction?: ReactNode
 }
 
 const badgeStyles: Record<BadgeColor, string> = {
@@ -41,7 +43,7 @@ const topBorderStyles: Record<BadgeColor, string> = {
   yellow: 'from-yellow-500/40 to-yellow-500/0',
 }
 
-export default function NodeShell({ children, label, icon, badge, badgeColor, selected, width }: NodeShellProps) {
+export default function NodeShell({ children, label, icon, badge, badgeColor, selected, width, headerAction }: NodeShellProps) {
   return (
     <div
       className={[
@@ -67,9 +69,12 @@ export default function NodeShell({ children, label, icon, badge, badgeColor, se
             </div>
             <span className="text-xs font-semibold text-slate-200 tracking-tight">{label}</span>
           </div>
-          <span className={`text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded border ${badgeStyles[badgeColor]}`}>
-            {badge}
-          </span>
+          <div className="flex items-center gap-1">
+            <span className={`text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded border ${badgeStyles[badgeColor]}`}>
+              {badge}
+            </span>
+            {headerAction}
+          </div>
         </div>
 
         {/* Divider */}

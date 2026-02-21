@@ -1,5 +1,5 @@
-import { getBlock } from './blockRegistry'
-import type { ConnectedModel } from '../utils/buildConnectedModel'
+import { getBlock, type BlockDefinition } from './blockRegistry'
+import type { ConnectedModel, ConnectedNode } from '../utils/buildConnectedModel'
 
 export type TriggerPayload = {
   agentId: string
@@ -60,6 +60,156 @@ export type RunOptions = {
   onDisplayUpdate?: (nodeId: string, value: string) => void
   /** Agent id when running from subscribeToAgent (for rate limit, etc.). */
   agentId?: string
+}
+
+/** Get all node IDs that feed into the given node (upstream dependencies). */
+function getUpstreamNodeIds(model: ConnectedModel, nodeId: string): Set<string> {
+  const seen = new Set<string>()
+  const stack: string[] = []
+  const node = model.nodes.find((n) => n.id === nodeId)
+  if (!node) return seen
+  for (const input of node.inputs) {
+    stack.push(input.sourceNodeId)
+  }
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    if (seen.has(id)) continue
+    seen.add(id)
+    const n = model.nodes.find((n) => n.id === id)
+    if (!n) continue
+    for (const input of n.inputs) {
+      stack.push(input.sourceNodeId)
+    }
+  }
+  return seen
+}
+
+/** Topologically sort nodes so dependencies run first. */
+function topologicalSortUpstream(model: ConnectedModel, nodeIds: Set<string>): string[] {
+  const nodeMap = new Map(model.nodes.map((n) => [n.id, n]))
+  const result: string[] = []
+  const remaining = new Set(nodeIds)
+
+  while (remaining.size > 0) {
+    const ready = [...remaining].filter((id) => {
+      const node = nodeMap.get(id)
+      if (!node) return true
+      return node.inputs.every((input) => !remaining.has(input.sourceNodeId))
+    })
+    if (ready.length === 0) {
+      const first = [...remaining][0]
+      ready.push(first)
+    }
+    for (const id of ready) {
+      result.push(id)
+      remaining.delete(id)
+    }
+  }
+  return result
+}
+
+/**
+ * Run a single block (and its downstream) for testing. Runs all upstream nodes first
+ * to resolve inputs, then runs the target block, then runs downstream.
+ */
+export async function runFromNode(
+  model: ConnectedModel,
+  nodeId: string,
+  context?: RunContext,
+  options?: RunOptions,
+): Promise<void> {
+  const nodeMap = new Map(model.nodes.map((n) => [n.id, n]))
+  const targetNode = nodeMap.get(nodeId)
+  if (!targetNode) return
+
+  const blockType = (targetNode.data?.blockType as string) ?? targetNode.type
+  const def = getBlock(blockType)
+  if (!def) return
+
+  const outputs = new Map<string, Record<string, string>>()
+  const upstreamIds = getUpstreamNodeIds(model, nodeId)
+  const order = topologicalSortUpstream(model, upstreamIds)
+
+  const runContext = {
+    ...context,
+    agentId: context?.agentId ?? options?.agentId,
+  }
+
+  for (const nid of order) {
+    const node = nodeMap.get(nid)
+    if (!node) continue
+    const nodeDef = getBlock((node.data?.blockType as string) ?? node.type)
+    if (!nodeDef) continue
+
+    const inputs = resolveInputs(node, nodeDef, outputs)
+    if ((nodeDef.type === 'swap' || nodeDef.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
+      inputs.swapper = context.walletAddress
+    }
+    try {
+      const result = await nodeDef.run(inputs, { ...runContext, nodeId: nid, agentId: runContext.agentId })
+      outputs.set(nid, result)
+      if (nodeDef.type === 'streamDisplay' && options?.onDisplayUpdate) {
+        options.onDisplayUpdate(nid, JSON.stringify(result, null, 2))
+      }
+      console.log(`[runAgent] Ran ${nodeDef.type} (${nid}):`, result)
+    } catch (err) {
+      console.error(`[runAgent] Block ${nid} (${nodeDef.type}) failed:`, err)
+      throw err
+    }
+  }
+
+  const targetInputs = resolveInputs(targetNode, def, outputs)
+  if ((def.type === 'swap' || def.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
+    targetInputs.swapper = context.walletAddress
+  }
+  const targetResult = await def.run(targetInputs, { ...runContext, nodeId, agentId: runContext.agentId })
+  outputs.set(nodeId, targetResult)
+  if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
+    options.onDisplayUpdate(nodeId, JSON.stringify(targetResult, null, 2))
+  }
+  console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, targetResult)
+
+  await runDownstreamGraph(model, nodeId, targetResult, context, options)
+}
+
+/** Resolve inputs for a node from outputs map and node data. */
+function resolveInputs(
+  node: ConnectedNode,
+  def: BlockDefinition,
+  outputs: Map<string, Record<string, string>>,
+): Record<string, string> {
+  const inputs: Record<string, string> = {}
+  for (const field of def.inputs) {
+    const storedVal = (node.data[field.name] != null ? String(node.data[field.name]) : field.defaultValue ?? '') as string
+    let val = storedVal
+
+    const conn = node.inputs.find((c) => c.targetHandle === field.name)
+    if (conn) {
+      const srcOuts = outputs.get(conn.sourceNodeId)
+      if (srcOuts) {
+        const useNormalizedForDisplay =
+          def.type === 'streamDisplay' &&
+          field.name === 'data' &&
+          srcOuts != null &&
+          typeof srcOuts === 'object'
+        const outName = useNormalizedForDisplay ? 'data' : (conn.sourceHandle ?? Object.keys(srcOuts)[0])
+        const connectedVal = useNormalizedForDisplay ? JSON.stringify(srcOuts) : (srcOuts[outName] ?? val)
+        if (storedVal.trim() !== '') {
+          val = storedVal
+        } else {
+          if (field.type === 'number' && connectedVal) {
+            const n = Number(connectedVal)
+            if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
+            else val = connectedVal
+          } else {
+            val = connectedVal
+          }
+        }
+      }
+    }
+    inputs[field.name] = resolveVariables(val, outputs)
+  }
+  return inputs
 }
 
 /**
