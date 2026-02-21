@@ -1,14 +1,13 @@
 import type { ReactNode } from 'react'
-
-type BadgeColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose' | 'yellow'
+import type { BlockCategory, BlockColor } from '../../lib/blockRegistry'
 
 interface NodeShellProps {
   children: ReactNode
   label: string
   icon: ReactNode
-  category: 'trigger' | 'action' | 'filter' | 'display'
+  category: BlockCategory
   badge: string
-  badgeColor: BadgeColor
+  badgeColor: BlockColor
   selected?: boolean
   /** When set (e.g. Output Display), use this width instead of default 220px */
   width?: number
@@ -16,7 +15,7 @@ interface NodeShellProps {
   headerAction?: ReactNode
 }
 
-const badgeStyles: Record<BadgeColor, string> = {
+const badgeStyles: Record<BlockColor, string> = {
   violet: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
   amber:  'bg-amber-500/10 text-amber-400 border-amber-500/20',
   emerald:'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
@@ -25,7 +24,7 @@ const badgeStyles: Record<BadgeColor, string> = {
   yellow: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
 }
 
-const ringStyles: Record<BadgeColor, string> = {
+const ringStyles: Record<BlockColor, string> = {
   violet: 'ring-violet-500/40',
   amber:  'ring-amber-500/40',
   emerald:'ring-emerald-500/40',
@@ -34,7 +33,7 @@ const ringStyles: Record<BadgeColor, string> = {
   yellow: 'ring-yellow-500/40',
 }
 
-const topBorderStyles: Record<BadgeColor, string> = {
+const topBorderStyles: Record<BlockColor, string> = {
   violet: 'from-violet-500/50 to-violet-500/0',
   amber:  'from-amber-500/50 to-amber-500/0',
   emerald:'from-emerald-500/50 to-emerald-500/0',

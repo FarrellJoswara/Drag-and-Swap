@@ -35,6 +35,8 @@ import {
   subscribe,
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
+import { recordVolumeAndCheckSpike } from '../services/hyperliquid/streamTriggerHandlers'
+import type { RunContext } from './runAgent'
 
 /** Skip sending variable placeholders (e.g. {{nodeId.out}}) to the API. */
 function isVariablePlaceholder(s: string): boolean {
@@ -366,6 +368,216 @@ registerBlock({
     )
 
     return unsubscribe
+  },
+})
+
+// ─── Stream Triggers (subscribe with filters; connect from Hyperliquid Stream) ───
+
+registerBlock({
+  type: 'liquidationAlert',
+  label: 'Liquidation alert',
+  description: 'Only pass when the event is a liquidation. Connect to Hyperliquid Stream (trades).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'emerald',
+  icon: 'activity',
+  inputs: [
+    {
+      name: 'data',
+      label: 'Connect to Stream',
+      type: 'textarea',
+      placeholder: 'Connect output from Hyperliquid Stream (trades)',
+      rows: 1,
+      allowVariable: true,
+      accepts: ['json', 'string'],
+    },
+  ],
+  outputs: getHyperliquidStreamOutputs('trades'),
+  run: async (inputs) => {
+    // Pass-through: when this block is the trigger, runAgent uses subscription outputs; run() used for manual run or passthrough.
+    return { ...inputs }
+  },
+})
+
+registerBlock({
+  type: 'filterByUser',
+  label: 'Filter by user(s)',
+  description: 'Only events for the given wallet address(es). Connect to Stream (trades or orders).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'blue',
+  icon: 'users',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    { name: 'users', label: 'User address(es)', type: 'textarea', placeholder: '0x... or comma-separated', rows: 1 },
+  ],
+  outputs: getHyperliquidStreamOutputs('trades'),
+  run: async (inputs) => ({ ...inputs }),
+})
+
+registerBlock({
+  type: 'twapFillNotifier',
+  label: 'TWAP fill notifier',
+  description: 'TWAP execution updates. Connect to Hyperliquid Stream (TWAP Status Alert).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'violet',
+  icon: 'trending-up',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (twap)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    { name: 'users', label: 'User address(es) (optional)', type: 'textarea', placeholder: 'Filter by user', rows: 1 },
+  ],
+  outputs: getHyperliquidStreamOutputs('twap'),
+  run: async (inputs) => ({ ...inputs }),
+})
+
+registerBlock({
+  type: 'orderFillAlert',
+  label: 'Order fill alert',
+  description: 'Order fill events. Connect to Hyperliquid Stream (Order Fill Alert / orders).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'amber',
+  icon: 'check-circle',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (orders)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+  ],
+  outputs: getHyperliquidStreamOutputs('orders'),
+  run: async (inputs) => ({ ...inputs }),
+})
+
+registerBlock({
+  type: 'newOrderAlert',
+  label: 'New order alert',
+  description: 'New order events. Connect to Hyperliquid Stream (orders).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'amber',
+  icon: 'plus-circle',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (orders)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+  ],
+  outputs: getHyperliquidStreamOutputs('orders'),
+  run: async (inputs) => ({ ...inputs }),
+})
+
+registerBlock({
+  type: 'depositWithdrawalAlert',
+  label: 'Deposit / withdrawal alert',
+  description: 'Deposit and withdrawal events. Connect to Hyperliquid Stream (Events Monitor).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'rose',
+  icon: 'arrow-down-up',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (events)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+  ],
+  outputs: getHyperliquidStreamOutputs('events'),
+  run: async (inputs) => ({ ...inputs }),
+})
+
+registerBlock({
+  type: 'fundingRateAlert',
+  label: 'Funding rate alert',
+  description: 'Funding rate events. Connect to Hyperliquid Stream (Events Monitor).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'rose',
+  icon: 'percent',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (events)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+  ],
+  outputs: getHyperliquidStreamOutputs('events'),
+  run: async (inputs) => ({ ...inputs }),
+})
+
+registerBlock({
+  type: 'writerActionMonitor',
+  label: 'Writer action monitor',
+  description: 'HyperCore ↔ HyperEVM bridge/transfer events. Connect to Hyperliquid Stream (Writer Actions).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'blue',
+  icon: 'repeat',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (writer_actions)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    { name: 'users', label: 'User address(es) (optional)', type: 'textarea', placeholder: 'Filter by user', rows: 1 },
+  ],
+  outputs: getHyperliquidStreamOutputs('writer_actions'),
+  run: async (inputs) => ({ ...inputs }),
+})
+
+// ─── Hybrid stream triggers (filter in run(); connect to Stream trades) ───
+
+registerBlock({
+  type: 'largeTradeAlert',
+  label: 'Large trade alert',
+  description: 'Only pass when trade size meets or exceeds minimum. Connect to Hyperliquid Stream (trades).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'amber',
+  icon: 'activity',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (trades)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    { name: 'minSize', label: 'Min size', type: 'number', placeholder: 'e.g. 1', defaultValue: '1' },
+  ],
+  outputs: getHyperliquidStreamOutputs('trades'),
+  run: async (inputs) => {
+    const size = Number.parseFloat(String(inputs.size ?? '').trim()) || 0
+    const minSize = Number.parseFloat(String(inputs.minSize ?? '0').trim()) || 0
+    const passed = minSize > 0 && size >= minSize
+    return { ...inputs, passed: passed ? 'true' : 'false' }
+  },
+})
+
+registerBlock({
+  type: 'priceCross',
+  label: 'Price cross alert',
+  description: 'Only pass when price crosses above or below a level. Connect to Hyperliquid Stream (trades).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'violet',
+  icon: 'activity',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (trades)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    { name: 'direction', label: 'Direction', type: 'select', options: ['above', 'below'], defaultValue: 'above' },
+    { name: 'priceLevel', label: 'Price level', type: 'number', placeholder: 'e.g. 50000' },
+  ],
+  outputs: getHyperliquidStreamOutputs('trades'),
+  run: async (inputs) => {
+    const price = Number.parseFloat(String(inputs.price ?? '').trim()) || 0
+    const level = Number.parseFloat(String(inputs.priceLevel ?? '').trim()) || 0
+    const dir = (inputs.direction ?? 'above').trim().toLowerCase()
+    let passed = false
+    if (level > 0) {
+      if (dir === 'above') passed = price >= level
+      else if (dir === 'below') passed = price <= level
+    }
+    return { ...inputs, passed: passed ? 'true' : 'false' }
+  },
+})
+
+registerBlock({
+  type: 'volumeSpike',
+  label: 'Volume spike alert',
+  description: 'Only pass when volume in the time window meets or exceeds threshold. Connect to Hyperliquid Stream (trades).',
+  category: 'streamTriggers',
+  service: 'hyperliquid',
+  color: 'rose',
+  icon: 'barChart',
+  inputs: [
+    { name: 'data', label: 'Connect to Stream', type: 'textarea', placeholder: 'Connect from Hyperliquid Stream (trades)', rows: 1, allowVariable: true, accepts: ['json', 'string'] },
+    { name: 'windowSeconds', label: 'Window (seconds)', type: 'number', placeholder: '60', defaultValue: '60' },
+    { name: 'volumeThreshold', label: 'Volume threshold', type: 'number', placeholder: '100' },
+  ],
+  outputs: getHyperliquidStreamOutputs('trades'),
+  run: async (inputs, context?: RunContext) => {
+    const size = Number.parseFloat(String(inputs.size ?? '').trim()) || 0
+    const windowSec = Number.parseFloat(String(inputs.windowSeconds ?? '60').trim()) || 60
+    const threshold = Number.parseFloat(String(inputs.volumeThreshold ?? '0').trim()) || 0
+    const windowMs = Math.max(1000, windowSec * 1000)
+    const passed = recordVolumeAndCheckSpike(context?.agentId, context?.nodeId, windowMs, threshold, size)
+    return { ...inputs, passed: passed ? 'true' : 'false' }
   },
 })
 
@@ -907,6 +1119,7 @@ registerBlock({
   category: 'action',
   color: 'blue',
   icon: 'variable',
+  hidden: true,
   inputs: [
     { name: 'name', label: 'Name (for reference)', type: 'text', placeholder: 'e.g. maxSlippage' },
     { name: 'value', label: 'Value', type: 'text', placeholder: 'e.g. 0.5', allowVariable: false },

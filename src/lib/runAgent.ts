@@ -1,5 +1,14 @@
 import { getBlock, type BlockDefinition } from './blockRegistry'
 import type { ConnectedModel, ConnectedNode } from '../utils/buildConnectedModel'
+import { subscribe } from '../services/hyperliquid/streams'
+import { buildFiltersFromSpec, validateFilterLimits } from '../services/hyperliquid/filters'
+import type { HyperliquidStreamType } from '../services/hyperliquid/types'
+import {
+  getFilterSpecForStreamTrigger,
+  mergeWithStreamSpec,
+  normalizeStreamType,
+  createStreamTriggerCallback,
+} from '../services/hyperliquid/streamTriggerHandlers'
 
 export type TriggerPayload = {
   agentId: string
@@ -357,10 +366,25 @@ export function subscribeToAgent(
   const getModel = subscribeOptions?.getModel
   const modelForInputs = getModel ? (getModel(agentId) ?? model) : model
 
+  const nodeMap = new Map(modelForInputs.nodes.map((n) => [n.id, n]))
+
   for (const node of modelForInputs.nodes) {
     const blockType = (node.data?.blockType as string) ?? (node.type as string)
     const def = getBlock(blockType)
     if (!def?.subscribe || def.category !== 'trigger') continue
+
+    // When Stream block has any downstream stream-trigger, do not subscribe from Stream; stream-triggers will subscribe instead.
+    if (blockType === 'hyperliquidStream') {
+      const hasStreamTriggerDownstream = node.outputs?.some((out) => {
+        const target = nodeMap.get(out.targetNodeId)
+        const targetDef = target ? getBlock((target.data?.blockType as string) ?? target.type) : null
+        return targetDef?.category === 'streamTriggers'
+      })
+      if (hasStreamTriggerDownstream) {
+        console.log('[runAgent] Skipping hyperliquidStream subscribe (stream-trigger(s) connected); stream-triggers will subscribe')
+        continue
+      }
+    }
 
     console.log('[runAgent] Subscribing to trigger:', blockType, 'nodeId:', node.id)
     const inputs: Record<string, string> = {}
@@ -378,6 +402,66 @@ export function subscribeToAgent(
       onTrigger(payload)
     })
     cleanups.push(unsub)
+  }
+
+  // Stream-trigger blocks: each one connected from a Stream gets its own subscription with merged filters.
+  for (const node of modelForInputs.nodes) {
+    const blockType = (node.data?.blockType as string) ?? (node.type as string)
+    const def = getBlock(blockType)
+    if (def?.category !== 'streamTriggers') continue
+
+    const streamConn = node.inputs?.find((c) => {
+      const source = nodeMap.get(c.sourceNodeId)
+      const sourceBlockType = (source?.data?.blockType as string) ?? source?.type
+      return sourceBlockType === 'hyperliquidStream'
+    })
+    if (!streamConn) {
+      console.warn('[runAgent] Stream-trigger node has no incoming connection from Hyperliquid Stream:', blockType, node.id)
+      continue
+    }
+
+    const sourceNode = nodeMap.get(streamConn.sourceNodeId)
+    if (!sourceNode) continue
+
+    const rawStreamType = (sourceNode.data?.streamType as string) ?? 'trades'
+    const streamType = normalizeStreamType(rawStreamType) as HyperliquidStreamType
+
+    const nodeInputs: Record<string, string> = {}
+    for (const field of def.inputs) {
+      const val = node.data[field.name]
+      nodeInputs[field.name] = val != null ? String(val) : (field.defaultValue ?? '')
+    }
+
+    const streamTriggerSpec = getFilterSpecForStreamTrigger(blockType, nodeInputs, streamType)
+    const streamNodeData = (sourceNode.data ?? {}) as Record<string, unknown>
+    const mergedSpec = mergeWithStreamSpec(streamNodeData, streamTriggerSpec)
+
+    let filters: ReturnType<typeof buildFiltersFromSpec>
+    try {
+      filters = buildFiltersFromSpec(streamType, mergedSpec)
+    } catch (e) {
+      console.warn('[runAgent] buildFiltersFromSpec failed for stream-trigger:', blockType, e)
+      continue
+    }
+    const validation = validateFilterLimits(streamType, filters)
+    if (!validation.valid) {
+      console.warn('[runAgent] Stream-trigger filter validation failed:', blockType, validation.errors)
+      continue
+    }
+
+    const modelToUse = getModel?.(agentId) ?? model
+    const runDownstream = (outputs: Record<string, string>) => {
+      runDownstreamGraph(modelToUse, node.id, outputs, context, runOptions).catch((err) =>
+        console.error('[runAgent] Downstream execution failed:', err),
+      )
+      onTrigger({ agentId, nodeId: node.id, outputs })
+    }
+
+    const runContext = { ...context, agentId, nodeId: node.id }
+    const callback = createStreamTriggerCallback(streamType, blockType, nodeInputs, runDownstream, runContext)
+    const unsub = subscribe(streamType, filters, callback)
+    cleanups.push(unsub)
+    console.log('[runAgent] Subscribing to stream-trigger:', blockType, 'nodeId:', node.id, 'streamType:', streamType)
   }
 
   return () => {

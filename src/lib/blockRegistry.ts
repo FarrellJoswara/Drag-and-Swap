@@ -19,6 +19,13 @@ import {
   Merge,
   Variable,
   Radio,
+  Users,
+  TrendingUp,
+  CheckCircle,
+  PlusCircle,
+  ArrowDownUp,
+  Percent,
+  Repeat,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -79,7 +86,7 @@ export interface OutputField {
   type?: 'string' | 'number' | 'address' | 'json' | 'boolean'
 }
 
-export type BlockCategory = 'trigger' | 'action' | 'filter' | 'display'
+export type BlockCategory = 'trigger' | 'action' | 'filter' | 'display' | 'streamTriggers'
 export type BlockColor = 'violet' | 'amber' | 'emerald' | 'blue' | 'rose' | 'yellow'
 export type BlockService = 'quicknode' | 'hyperliquid' | 'uniswap'
 
@@ -109,6 +116,8 @@ export interface BlockDefinition {
   sidePanel?: { label: string; mainInputNames: string[] }
   /** When set, only returned input names are shown (e.g. stream-type–relevant filters). */
   getVisibleInputs?: (inputs: Record<string, string>) => string[]
+  /** When true, block is not shown in the sidebar (still works on canvas and in variable options). */
+  hidden?: boolean
   run: (inputs: Record<string, string>, context?: import('./runAgent').RunContext) => Promise<Record<string, string>>
   /** Interrupt-based: subscribe to events, call onTrigger when they occur. Returns cleanup. */
   subscribe?: (inputs: Record<string, string>, onTrigger: TriggerCallback) => Unsubscribe
@@ -132,6 +141,7 @@ export function getAllBlocks() {
 
 export function getBlocksByCategory(category: BlockCategory) {
   return getAllBlocks().filter((b) => {
+    if (b.hidden) return false
     if (b.categories) return b.categories.includes(category)
     return b.category === category
   })
@@ -208,6 +218,13 @@ const iconMap: Record<string, LucideIcon> = {
   merge: Merge,
   variable: Variable,
   radio: Radio,
+  users: Users,
+  'trending-up': TrendingUp,
+  'check-circle': CheckCircle,
+  'plus-circle': PlusCircle,
+  'arrow-down-up': ArrowDownUp,
+  percent: Percent,
+  repeat: Repeat,
 }
 
 export function getBlockIcon(name: string): LucideIcon {

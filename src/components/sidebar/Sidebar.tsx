@@ -7,6 +7,7 @@ import {
   getBlockIcon,
   sidebarColorClasses,
   type BlockDefinition,
+  type BlockCategory,
 } from '../../lib/blockRegistry'
 import { useVariables, type Variable } from '../../lib/VariableContext'
 
@@ -149,7 +150,7 @@ function CollapsibleCategorySection({
 }: {
   title: string
   icon: React.ReactNode
-  category: 'trigger' | 'action' | 'filter' | 'display'
+  category: BlockCategory
   query: string
   defaultOpen?: boolean
   onDragStartRecord?: (blockType: string) => void
@@ -296,10 +297,11 @@ export default function Sidebar() {
 
   const noBlocks = useMemo(() => {
     const hasTriggers = filterBlocks(getBlocksByCategory('trigger'), query).length > 0
+    const hasStreamTriggers = filterBlocks(getBlocksByCategory('streamTriggers'), query).length > 0
     const hasActions = filterBlocks(getBlocksByCategory('action'), query).length > 0
     const hasFilters = filterBlocks(getBlocksByCategory('filter'), query).length > 0
     const hasDisplay = filterBlocks(getBlocksByCategory('display'), query).length > 0
-    return !hasTriggers && !hasActions && !hasFilters && !hasDisplay
+    return !hasTriggers && !hasStreamTriggers && !hasActions && !hasFilters && !hasDisplay
   }, [query])
   const noVariables = filteredVariables.length === 0 && variables.length === 0
 
@@ -398,6 +400,15 @@ export default function Sidebar() {
           title="Triggers"
           icon={<Zap size={11} />}
           category="trigger"
+          query={query}
+          onDragStartRecord={recordRecent}
+          favorites={favoritesSet}
+          onToggleFavorite={toggleFavorite}
+        />
+        <CollapsibleCategorySection
+          title="Stream Triggers"
+          icon={<Zap size={11} />}
+          category="streamTriggers"
           query={query}
           onDragStartRecord={recordRecent}
           favorites={favoritesSet}
