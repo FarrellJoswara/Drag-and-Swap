@@ -3,6 +3,7 @@ import { subscribeToAgent, type TriggerPayload, type RunContext } from '../lib/r
 import { getBlock } from '../lib/blockRegistry'
 import type { DeployedAgent } from '../types/agent'
 import { useDisplayValue } from '../contexts/DisplayValueContext'
+import { useGraphSeries } from '../contexts/GraphSeriesContext'
 import { useCurrentFlow } from '../contexts/CurrentFlowContext'
 import { buildConnectedModel } from '../utils/buildConnectedModel'
 
@@ -21,6 +22,7 @@ export function useActiveAgentRunners(
   const onTriggerRef = useRef(onTrigger)
   onTriggerRef.current = onTrigger
   const { setDisplayValue } = useDisplayValue()
+  const { appendPoint } = useGraphSeries()
   const { getCurrentFlow } = useCurrentFlow()
 
   const getModel = useCallback(
@@ -63,6 +65,7 @@ export function useActiveAgentRunners(
         context,
         {
           onDisplayUpdate: (nodeId, value) => setDisplayValue(agent.id, nodeId, value),
+          onGraphPointUpdate: (agentId, nodeId, point) => appendPoint(agentId, nodeId, point),
           getModel,
         },
       )
@@ -72,5 +75,5 @@ export function useActiveAgentRunners(
     return () => {
       for (const cleanup of cleanups) cleanup()
     }
-  }, [active, triggerInputsSignature, setDisplayValue, getModel])
+  }, [active, triggerInputsSignature, setDisplayValue, appendPoint, getModel])
 }

@@ -767,7 +767,7 @@ function InputWithSourceSelector(props: BlockInputProps) {
   )
 
   if (mode === 'upstream' && connectionInfo && props.onSourceOutputChange) {
-    const { availableOutputs, sourceBlockLabel, currentSourceHandle } = connectionInfo
+    const { availableOutputs, currentSourceHandle } = connectionInfo
     const safeValue =
       currentSourceHandle != null && availableOutputs.some((o) => o.name === currentSourceHandle)
         ? currentSourceHandle

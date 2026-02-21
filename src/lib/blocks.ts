@@ -36,6 +36,7 @@ import {
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
 import { recordVolumeAndCheckSpike } from '../services/hyperliquid/streamTriggerHandlers'
+import { getAllMids } from '../services/hyperliquid/info'
 import type { RunContext } from './runAgent'
 
 /** Skip sending variable placeholders (e.g. {{nodeId.out}}) to the API. */
@@ -755,6 +756,206 @@ registerBlock({
       /* ignore */
     }
     return { lastEvent: typeof raw === 'string' ? raw : '' }
+  },
+})
+
+// ─── General Filter Block ───────────────────────────────
+
+function getGeneralFilterOutputs(inputs: Record<string, string>): { name: string; label: string; type?: 'string' | 'number' | 'address' | 'json' | 'boolean' }[] {
+  const fieldsRaw = (inputs.fields ?? '').trim()
+  if (fieldsRaw) {
+    try {
+      const arr = JSON.parse(fieldsRaw)
+      if (Array.isArray(arr) && arr.length > 0) {
+        const names = arr.filter((x): x is string => typeof x === 'string')
+        if (names.length > 0) {
+          return names.map((key) => ({
+            name: key,
+            label: key.charAt(0).toUpperCase() + key.slice(1),
+            type: 'string' as const,
+          }))
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return [{ name: 'filtered', label: 'Filtered (JSON)', type: 'json' }]
+}
+
+function runGeneralFilter(inputs: Record<string, string>): Promise<Record<string, string>> {
+  const raw = inputs.data ?? ''
+  let selectedFields: string[] | null = null
+  try {
+    const fieldsRaw = (inputs.fields ?? '').trim()
+    if (fieldsRaw) {
+      const arr = JSON.parse(fieldsRaw)
+      if (Array.isArray(arr) && arr.length > 0) {
+        selectedFields = arr.filter((x): x is string => typeof x === 'string')
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const filterKeys = (obj: Record<string, string>): Record<string, string> => {
+    if (selectedFields == null || selectedFields.length === 0) return obj
+    const result: Record<string, string> = {}
+    for (const k of selectedFields) {
+      if (k in obj) result[k] = obj[k]
+    }
+    return result
+  }
+
+  if (typeof raw !== 'string') {
+    const obj = raw as Record<string, unknown>
+    const result: Record<string, string> = {}
+    for (const k of Object.keys(obj)) result[k] = String(obj[k] ?? '')
+    return Promise.resolve(filterKeys(result))
+  }
+  if (!raw.trim()) {
+    return Promise.resolve({ filtered: '' })
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const result: Record<string, string> = {}
+      for (const [k, v] of Object.entries(parsed)) {
+        result[k] = v == null ? '' : String(v)
+      }
+      return Promise.resolve(filterKeys(result))
+    }
+  } catch {
+    /* ignore */
+  }
+  return Promise.resolve({ filtered: typeof raw === 'string' ? raw : '' })
+}
+
+registerBlock({
+  type: 'generalFilter',
+  label: 'General Filter',
+  description:
+    'Pass through only selected fields from the connected data. Single input; choose which fields appear on the output.',
+  category: 'filter',
+  color: 'yellow',
+  icon: 'filter',
+  inputs: [
+    {
+      name: 'data',
+      label: 'Source',
+      type: 'textarea',
+      placeholder: '',
+      rows: 1,
+      allowVariable: true,
+      accepts: ['json', 'string', 'number'],
+    },
+    {
+      name: 'fields',
+      label: 'Fields to pass',
+      type: 'text',
+      placeholder: '[]',
+    },
+  ],
+  outputs: [
+    { name: 'filtered', label: 'Filtered (JSON)', type: 'json' },
+  ],
+  getOutputs: getGeneralFilterOutputs,
+  run: runGeneralFilter,
+})
+
+// ─── Live Token Price (trigger) ───────────────────────────
+
+const LIVE_PRICE_TOKENS = [
+  'BTC', 'ETH', 'SOL', 'HYPE', 'ARB', 'OP', 'DOGE', 'AVAX', 'LINK', 'MATIC', 'UNI', 'ATOM', 'LTC', 'XRP', 'ADA', 'DOT', 'AAVE', 'CRV', 'MKR', 'SNX',
+]
+
+registerBlock({
+  type: 'liveTokenPrice',
+  label: 'Live Token Price',
+  description: 'Poll Hyperliquid mid price for a token at a set interval and run downstream.',
+  category: 'trigger',
+  service: 'hyperliquid',
+  color: 'emerald',
+  icon: 'trending-up',
+  inputs: [
+    {
+      name: 'coin',
+      label: 'Token',
+      type: 'tokenSelect',
+      tokens: LIVE_PRICE_TOKENS,
+      defaultValue: 'BTC',
+    },
+    {
+      name: 'intervalSeconds',
+      label: 'Interval (seconds)',
+      type: 'number',
+      placeholder: '5',
+      defaultValue: '5',
+      min: 1,
+      max: 3600,
+    },
+  ],
+  outputs: [
+    { name: 'price', label: 'Price', type: 'number' },
+    { name: 'coin', label: 'Coin', type: 'string' },
+    { name: 'timestamp', label: 'Timestamp', type: 'string' },
+  ],
+  run: async (inputs) => {
+    const coin = (inputs.coin ?? 'BTC').trim() || 'BTC'
+    const mids = await getAllMids()
+    const price = mids[coin] ?? mids[coin.toUpperCase()] ?? '0'
+    const timestamp = String(Date.now())
+    return { price, coin, timestamp }
+  },
+  subscribe: (inputs, onTrigger) => {
+    const coin = (inputs.coin ?? 'BTC').trim() || 'BTC'
+    const seconds = Math.max(1, Math.min(3600, Number(inputs.intervalSeconds) || 5))
+    const ms = seconds * 1000
+
+    const id = setInterval(async () => {
+      try {
+        const mids = await getAllMids()
+        const price = mids[coin] ?? mids[coin.toUpperCase()] ?? '0'
+        const timestamp = String(Date.now())
+        onTrigger({ price, coin, timestamp })
+      } catch (e) {
+        console.warn('[liveTokenPrice] getAllMids failed:', e)
+        onTrigger({ price: '0', coin, timestamp: String(Date.now()) })
+      }
+    }, ms)
+    return () => clearInterval(id)
+  },
+})
+
+// ─── Graph Display ───────────────────────────────────────
+
+registerBlock({
+  type: 'graphDisplay',
+  label: 'Graph Display',
+  description: 'Plot numeric values over time. Connect a value (e.g. price) from an upstream block.',
+  category: 'display',
+  color: 'blue',
+  icon: 'barChart',
+  inputs: [
+    {
+      name: 'value',
+      label: 'Value',
+      type: 'number',
+      placeholder: 'Connect price or number',
+      allowVariable: true,
+      accepts: ['number'],
+    },
+  ],
+  outputs: [
+    { name: 'lastValue', label: 'Last Value', type: 'number' },
+    { name: 'lastTimestamp', label: 'Last Timestamp', type: 'string' },
+  ],
+  run: async (inputs): Promise<Record<string, string>> => {
+    const raw = (inputs.value ?? '').trim()
+    const num = raw === '' ? NaN : Number(raw)
+    const value = Number.isFinite(num) ? String(num) : '0'
+    const timestamp = String(Date.now())
+    return { lastValue: value, lastTimestamp: timestamp }
   },
 })
 

@@ -1,14 +1,5 @@
 import { getBlock, type BlockDefinition } from './blockRegistry'
 import type { ConnectedModel, ConnectedNode } from '../utils/buildConnectedModel'
-import { subscribe } from '../services/hyperliquid/streams'
-import { buildFiltersFromSpec, validateFilterLimits } from '../services/hyperliquid/filters'
-import type { HyperliquidStreamType } from '../services/hyperliquid/types'
-import {
-  getFilterSpecForStreamTrigger,
-  mergeWithStreamSpec,
-  normalizeStreamType,
-  createStreamTriggerCallback,
-} from '../services/hyperliquid/streamTriggerHandlers'
 
 export type TriggerPayload = {
   agentId: string
@@ -64,9 +55,13 @@ export type RunContext = {
   agentId?: string
 }
 
+export type GraphPoint = { timestamp: number; value: number }
+
 export type RunOptions = {
   /** When a streamDisplay node completes, called with its node id and lastEvent value (for TV preview). */
   onDisplayUpdate?: (nodeId: string, value: string) => void
+  /** When a graphDisplay node completes, called so the chart can append a point. */
+  onGraphPointUpdate?: (agentId: string, nodeId: string, point: GraphPoint) => void
   /** Agent id when running from subscribeToAgent (for rate limit, etc.). */
   agentId?: string
 }
@@ -199,13 +194,13 @@ function resolveInputs(
     if (binding) {
       const srcOuts = outputs.get(binding.sourceNodeId)
       if (srcOuts) {
-        const useNormalizedForDisplay =
-          def.type === 'streamDisplay' &&
+        const useFullObjectForData =
+          (def.type === 'streamDisplay' || def.type === 'generalFilter') &&
           field.name === 'data' &&
           srcOuts != null &&
           typeof srcOuts === 'object'
-        const outName = useNormalizedForDisplay ? 'data' : binding.outputName
-        const connectedVal = useNormalizedForDisplay ? JSON.stringify(srcOuts) : (srcOuts[outName] ?? val)
+        const outName = useFullObjectForData ? 'data' : binding.outputName
+        const connectedVal = useFullObjectForData ? JSON.stringify(srcOuts) : (srcOuts[outName] ?? val)
         if (storedVal.trim() !== '') {
           val = storedVal
         } else {
@@ -293,13 +288,13 @@ export async function runDownstreamGraph(
       if (binding) {
         const srcOuts = outputs.get(binding.sourceNodeId)
         if (srcOuts) {
-          const useNormalizedForDisplay =
-            def.type === 'streamDisplay' &&
+          const useFullObjectForData =
+            (def.type === 'streamDisplay' || def.type === 'generalFilter') &&
             field.name === 'data' &&
             srcOuts != null &&
             typeof srcOuts === 'object'
-          const outName = useNormalizedForDisplay ? 'data' : binding.outputName
-          const connectedVal = useNormalizedForDisplay
+          const outName = useFullObjectForData ? 'data' : binding.outputName
+          const connectedVal = useFullObjectForData
             ? JSON.stringify(srcOuts)
             : (srcOuts[outName] ?? val)
           if (storedVal.trim() !== '') {
@@ -335,6 +330,12 @@ export async function runDownstreamGraph(
       if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
         options.onDisplayUpdate(nodeId, JSON.stringify(result, null, 2))
       }
+      if (def.type === 'graphDisplay' && options?.onGraphPointUpdate) {
+        const agentId = context?.agentId ?? options?.agentId ?? ''
+        const ts = Number(result.lastTimestamp) || Date.now()
+        const val = Number(result.lastValue) || 0
+        options.onGraphPointUpdate(agentId, nodeId, { timestamp: ts, value: val })
+      }
       console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, result)
       // Only queue targets for output handles that have a truthy value (enables conditional branching)
       for (const out of node.outputs) {
@@ -353,6 +354,8 @@ export async function runDownstreamGraph(
 export type SubscribeOptions = {
   /** When a streamDisplay node completes, called with its node id and lastEvent value (for TV preview). */
   onDisplayUpdate?: (nodeId: string, value: string) => void
+  /** When a graphDisplay node completes, called to append a point to the chart series. */
+  onGraphPointUpdate?: (agentId: string, nodeId: string, point: GraphPoint) => void
   /** When provided, use this model (e.g. current editor flow) instead of saved model when running downstream. Enables "Fields to Show" toggles without saving. */
   getModel?: (agentId: string) => ConnectedModel | null
 }
@@ -371,28 +374,14 @@ export function subscribeToAgent(
   const cleanups: Array<() => void> = []
   const runOptions: RunOptions = { agentId }
   if (subscribeOptions?.onDisplayUpdate) runOptions.onDisplayUpdate = subscribeOptions.onDisplayUpdate
+  if (subscribeOptions?.onGraphPointUpdate) runOptions.onGraphPointUpdate = subscribeOptions.onGraphPointUpdate
   const getModel = subscribeOptions?.getModel
   const modelForInputs = getModel ? (getModel(agentId) ?? model) : model
-
-  const nodeMap = new Map(modelForInputs.nodes.map((n) => [n.id, n]))
 
   for (const node of modelForInputs.nodes) {
     const blockType = (node.data?.blockType as string) ?? (node.type as string)
     const def = getBlock(blockType)
     if (!def?.subscribe || def.category !== 'trigger') continue
-
-    // When Stream block has any downstream stream-trigger, do not subscribe from Stream; stream-triggers will subscribe instead.
-    if (blockType === 'hyperliquidStream') {
-      const hasStreamTriggerDownstream = node.outputs?.some((out) => {
-        const target = nodeMap.get(out.targetNodeId)
-        const targetDef = target ? getBlock((target.data?.blockType as string) ?? target.type) : null
-        return targetDef?.category === 'streamTriggers'
-      })
-      if (hasStreamTriggerDownstream) {
-        console.log('[runAgent] Skipping hyperliquidStream subscribe (stream-trigger(s) connected); stream-triggers will subscribe')
-        continue
-      }
-    }
 
     console.log('[runAgent] Subscribing to trigger:', blockType, 'nodeId:', node.id)
     const inputs: Record<string, string> = {}
@@ -401,6 +390,7 @@ export function subscribeToAgent(
       inputs[field.name] = val != null ? String(val) : (field.defaultValue ?? '')
     }
 
+    const runContext = { ...context, agentId, nodeId: node.id }
     const unsub = def.subscribe!(inputs, (outputs) => {
       const payload: TriggerPayload = { agentId, nodeId: node.id, outputs }
       const modelToUse = getModel?.(agentId) ?? model
@@ -408,80 +398,8 @@ export function subscribeToAgent(
         console.error('[runAgent] Downstream execution failed:', err),
       )
       onTrigger(payload)
-    })
+    }, runContext)
     cleanups.push(unsub)
-  }
-
-  // Stream-trigger blocks: each one connected from a Stream gets its own subscription with merged filters.
-  for (const node of modelForInputs.nodes) {
-    const blockType = (node.data?.blockType as string) ?? (node.type as string)
-    const def = getBlock(blockType)
-    if (def?.category !== 'streamTriggers') continue
-
-    const streamConn = node.inputs?.find((c) => {
-      const source = nodeMap.get(c.sourceNodeId)
-      const sourceBlockType = (source?.data?.blockType as string) ?? source?.type
-      return sourceBlockType === 'hyperliquidStream'
-    })
-
-    // Resolve source: explicit edge, or fallback when exactly one hyperliquidStream exists (handles filtered/lost edges)
-    let sourceNode: (typeof modelForInputs.nodes)[0] | undefined
-    if (streamConn) {
-      sourceNode = nodeMap.get(streamConn.sourceNodeId)
-    } else {
-      const streamNodes = modelForInputs.nodes.filter((n) => {
-        const bt = (n.data?.blockType as string) ?? n.type
-        return bt === 'hyperliquidStream'
-      })
-      if (streamNodes.length === 1) {
-        sourceNode = streamNodes[0]
-        console.log('[runAgent] Stream-trigger using fallback: single hyperliquidStream in model:', blockType, node.id)
-      }
-    }
-    if (!sourceNode) {
-      console.warn('[runAgent] Stream-trigger node has no incoming connection from Hyperliquid Stream:', blockType, node.id)
-      continue
-    }
-
-    const rawStreamType = (sourceNode.data?.streamType as string) ?? 'trades'
-    const streamType = normalizeStreamType(rawStreamType) as HyperliquidStreamType
-
-    const nodeInputs: Record<string, string> = {}
-    for (const field of def.inputs) {
-      const val = node.data[field.name]
-      nodeInputs[field.name] = val != null ? String(val) : (field.defaultValue ?? '')
-    }
-
-    const streamTriggerSpec = getFilterSpecForStreamTrigger(blockType, nodeInputs, streamType)
-    const streamNodeData = (sourceNode.data ?? {}) as Record<string, unknown>
-    const mergedSpec = mergeWithStreamSpec(streamNodeData, streamTriggerSpec)
-
-    let filters: ReturnType<typeof buildFiltersFromSpec>
-    try {
-      filters = buildFiltersFromSpec(streamType, mergedSpec)
-    } catch (e) {
-      console.warn('[runAgent] buildFiltersFromSpec failed for stream-trigger:', blockType, e)
-      continue
-    }
-    const validation = validateFilterLimits(streamType, filters)
-    if (!validation.valid) {
-      console.warn('[runAgent] Stream-trigger filter validation failed:', blockType, validation.errors)
-      continue
-    }
-
-    const modelToUse = getModel?.(agentId) ?? model
-    const runDownstream = (outputs: Record<string, string>) => {
-      runDownstreamGraph(modelToUse, node.id, outputs, context, runOptions).catch((err) =>
-        console.error('[runAgent] Downstream execution failed:', err),
-      )
-      onTrigger({ agentId, nodeId: node.id, outputs })
-    }
-
-    const runContext = { ...context, agentId, nodeId: node.id }
-    const callback = createStreamTriggerCallback(streamType, blockType, nodeInputs, runDownstream, runContext)
-    const unsub = subscribe(streamType, filters, callback)
-    cleanups.push(unsub)
-    console.log('[runAgent] Subscribing to stream-trigger:', blockType, 'nodeId:', node.id, 'streamType:', streamType)
   }
 
   return () => {

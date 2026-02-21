@@ -120,7 +120,7 @@ export interface BlockDefinition {
   hidden?: boolean
   run: (inputs: Record<string, string>, context?: import('./runAgent').RunContext) => Promise<Record<string, string>>
   /** Interrupt-based: subscribe to events, call onTrigger when they occur. Returns cleanup. */
-  subscribe?: (inputs: Record<string, string>, onTrigger: TriggerCallback) => Unsubscribe
+  subscribe?: (inputs: Record<string, string>, onTrigger: TriggerCallback, context?: import('./runAgent').RunContext) => Unsubscribe
 }
 
 // ── Registry ──────────────────────────────────────────────

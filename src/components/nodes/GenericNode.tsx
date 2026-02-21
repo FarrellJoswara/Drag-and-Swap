@@ -20,6 +20,15 @@ import { useSendTransaction } from '../../hooks/useSendTransaction'
 import { useSignTypedData } from '../../hooks/useSignTypedData'
 import { useAgentId } from '../../contexts/AgentIdContext'
 import { useDisplayValue } from '../../contexts/DisplayValueContext'
+import { useGraphSeries } from '../../contexts/GraphSeriesContext'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
 
 /** Get color class for output type */
 function getTypeColor(type?: string): string {
@@ -49,6 +58,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const signTypedData = useSignTypedData()
   const agentId = useAgentId()
   const { getDisplayValue, setDisplayValue, clearDisplayValue } = useDisplayValue()
+  const { getSeries, clearSeries } = useGraphSeries()
 
   if (!definition) {
     return (
@@ -98,6 +108,26 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       setNodes((nodes) =>
         nodes.map((n) =>
           n.id === id ? { ...n, data: { ...n.data, streamDisplayWidth: w } } : n,
+        ),
+      ),
+    [id, setNodes],
+  )
+
+  const setGraphHeight = useCallback(
+    (h: number) =>
+      setNodes((nodes) =>
+        nodes.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, graphDisplayHeight: h } } : n,
+        ),
+      ),
+    [id, setNodes],
+  )
+
+  const setGraphWidth = useCallback(
+    (w: number) =>
+      setNodes((nodes) =>
+        nodes.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, graphDisplayWidth: w } } : n,
         ),
       ),
     [id, setNodes],
@@ -216,6 +246,25 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   // For streamDisplay: source block outputs for "Fields to Show" (from inputSources.data)
   const streamDisplaySourceOutputs = useMemo(() => {
     if (blockType !== 'streamDisplay') return []
+    const dataConn = connectionInfoByInput['data']
+    if (dataConn?.availableOutputs?.length) return dataConn.availableOutputs
+    const inputSources = (data.inputSources as Record<string, { sourceNodeId: string; outputName: string }> | undefined) ?? {}
+    const dataBinding = inputSources['data']
+    if (dataBinding) {
+      const nodes = getNodes()
+      const sourceNode = nodes.find((n) => n.id === dataBinding.sourceNodeId)
+      if (sourceNode) {
+        const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
+        const outputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+        if (outputs.length > 0) return outputs.map((o) => ({ name: o.name, label: o.label }))
+      }
+    }
+    return []
+  }, [blockType, connectionInfoByInput, data.inputSources, getNodes])
+
+  // For generalFilter: source block outputs for "Fields to pass" (from inputSources.data)
+  const generalFilterSourceOutputs = useMemo(() => {
+    if (blockType !== 'generalFilter') return []
     const dataConn = connectionInfoByInput['data']
     if (dataConn?.availableOutputs?.length) return dataConn.availableOutputs
     const inputSources = (data.inputSources as Record<string, { sourceNodeId: string; outputName: string }> | undefined) ?? {}
@@ -396,7 +445,13 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
           category={definition.category}
           badge={definition.category.toUpperCase()}
           badgeColor={definition.color}
-          width={blockType === 'streamDisplay' ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220) : undefined}
+          width={
+            blockType === 'streamDisplay'
+              ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220)
+              : blockType === 'graphDisplay'
+                ? (data.graphDisplayWidth != null ? Number(data.graphDisplayWidth) : 280)
+                : undefined
+          }
           headerAction={runButton}
         >
           <div className="max-h-[320px] overflow-y-auto overflow-x-hidden flex flex-col gap-2 overscroll-contain">
@@ -465,8 +520,14 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       category={definition.category}
       badge={definition.category.toUpperCase()}
       badgeColor={definition.color}
-      width={blockType === 'streamDisplay' ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220) : undefined}
-      headerAction={blockType === 'manualTrigger' ? undefined : runButton}
+          width={
+            blockType === 'streamDisplay'
+              ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220)
+              : blockType === 'graphDisplay'
+                ? (data.graphDisplayWidth != null ? Number(data.graphDisplayWidth) : 280)
+                : undefined
+          }
+          headerAction={blockType === 'manualTrigger' ? undefined : runButton}
     >
       <div className="flex flex-col gap-2">
           {connectedSourceLabels.length > 0 && blockType !== 'manualTrigger' && (
@@ -485,8 +546,19 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
             </button>
           ) : (
             definition.inputs.filter((f) => !hiddenInputNames.has(f.name)).map((field) => {
-              if (blockType === 'streamDisplay' && field.name === 'fields') {
-                const options = streamDisplaySourceOutputs
+              const isFieldsSelector =
+                (blockType === 'streamDisplay' || blockType === 'generalFilter') && field.name === 'fields'
+              if (isFieldsSelector) {
+                const options =
+                  blockType === 'streamDisplay' ? streamDisplaySourceOutputs : generalFilterSourceOutputs
+                const emptyHint =
+                  blockType === 'generalFilter'
+                    ? (availableDataSources.length > 0
+                        ? 'Select a source in the Source field above to choose which fields to pass.'
+                        : 'Connect a block above, then select its source in the Source field to choose fields.')
+                    : (availableDataSources.length > 0
+                        ? 'Select a source in the Source field above to choose which fields to display.'
+                        : 'Connect a block above, then select its source in the Source field to choose fields.')
                 let selected: string[] = []
                 try {
                   const raw = (inputs.fields ?? '').trim()
@@ -508,9 +580,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                     </label>
                     {options.length === 0 ? (
                       <p className="text-[10px] text-slate-500 italic">
-                        {availableDataSources.length > 0
-                          ? 'Select a source in the Source field above to choose which fields to display.'
-                          : 'Connect a block above, then select its source in the Source field to choose fields.'}
+                        {emptyHint}
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
@@ -606,6 +676,85 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                       <span className="text-slate-500 italic">No data yet</span>
                     ) : (
                       displayConsoleValue
+                    )}
+                  </div>
+                </div>
+              </ResizablePanel>
+            )
+          })()}
+
+          {blockType === 'graphDisplay' && (() => {
+            const graphHeight = (data.graphDisplayHeight != null ? Number(data.graphDisplayHeight) : null) ?? 120
+            const graphWidth = (data.graphDisplayWidth != null ? Number(data.graphDisplayWidth) : null) ?? 280
+            const series = getSeries(displayAgentIdForValue, id)
+            const chartData = series.map((p) => ({
+              time: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              value: p.value,
+            }))
+            return (
+              <ResizablePanel
+                height={graphHeight}
+                onHeightChange={setGraphHeight}
+                minHeight={64}
+                maxHeight={400}
+                width={graphWidth}
+                onWidthChange={setGraphWidth}
+                minWidth={200}
+                maxWidth={600}
+              >
+                <div className="rounded-md border border-slate-700 bg-slate-900/95 overflow-hidden flex-1 min-h-0 flex flex-col">
+                  <div className="px-2 py-1 border-b border-slate-700/80 flex items-center justify-between gap-1.5 flex-shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500/80" aria-hidden />
+                      <span className="text-[9px] font-medium text-slate-500 uppercase tracking-wider">
+                        Chart
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="nodrag nopan text-[9px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors"
+                      onClick={() => clearSeries(displayAgentIdForValue, id)}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-0 min-w-0" style={{ width: graphWidth, height: graphHeight - 28 }}>
+                    {chartData.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-[10px] text-slate-500 italic">
+                        {agentId == null
+                          ? 'Save agent to see live chart'
+                          : 'Connect a value (e.g. Live Token Price) and run'}
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
+                          <XAxis
+                            dataKey="time"
+                            tick={{ fontSize: 9, fill: '#94a3b8' }}
+                            stroke="#475569"
+                          />
+                          <YAxis
+                            tick={{ fontSize: 9, fill: '#94a3b8' }}
+                            stroke="#475569"
+                            domain={['auto', 'auto']}
+                            tickFormatter={(v) => (Number(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))}
+                          />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', fontSize: 10 }}
+                            labelStyle={{ color: '#94a3b8' }}
+                            formatter={(value: number | undefined) => [value ?? 0, 'Value']}
+                            labelFormatter={(label) => `Time: ${label}`}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#3b82f6"
+                            strokeWidth={2}
+                            dot={false}
+                            isAnimationActive={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
                     )}
                   </div>
                 </div>

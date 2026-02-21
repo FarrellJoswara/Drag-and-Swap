@@ -9,6 +9,7 @@ import { useSendTransaction } from './hooks/useSendTransaction'
 import { useSignTypedData } from './hooks/useSignTypedData'
 import { DisplayValueProvider } from './contexts/DisplayValueContext'
 import { CurrentFlowProvider } from './contexts/CurrentFlowContext'
+import { GraphSeriesProvider } from './contexts/GraphSeriesContext'
 
 function AgentRunners() {
   const { agents } = useAgents()
@@ -25,14 +26,16 @@ export default function Router() {
   return (
     <BrowserRouter>
       <DisplayValueProvider>
-        <CurrentFlowProvider>
-          <AgentRunners />
-          <Routes>
+        <GraphSeriesProvider>
+          <CurrentFlowProvider>
+            <AgentRunners />
+            <Routes>
           <Route path="/" element={<AgentsHome />} />
           <Route path="/new" element={<App />} />
           <Route path="/agent/:id" element={<App />} />
-          </Routes>
-        </CurrentFlowProvider>
+            </Routes>
+          </CurrentFlowProvider>
+        </GraphSeriesProvider>
       </DisplayValueProvider>
     </BrowserRouter>
   )
