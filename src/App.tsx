@@ -122,9 +122,28 @@ function modelToFlowData(model: {
   return { nodes, edges }
 }
 
+/** Connectable = has a handle and accepts connections (not walletAddress, not operator, etc.) */
+function isConnectableInput(i: { type: string; acceptsConnections?: boolean }): boolean {
+  if (i.type === 'walletAddress') return false
+  if (i.acceptsConnections === false) return false
+  return true
+}
+
 /** Assign default sourceHandle/targetHandle when missing so React Flow never sees undefined. Drops edges that can't be normalized. */
 function normalizeEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  const connectableByTarget = new Map<string, { name: string }[]>()
+  for (const n of nodes) {
+    const block = (n.data?.blockType as string) ?? n.type
+    const def = getBlock(block)
+    if (def) {
+      connectableByTarget.set(
+        n.id,
+        def.inputs.filter(isConnectableInput).map((i) => ({ name: i.name })),
+      )
+    }
+  }
+  const usedTargetHandles = new Map<string, Set<string>>()
   const result: Edge[] = []
   for (const e of edges) {
     const sourceNode = nodeMap.get(e.source)
@@ -144,10 +163,16 @@ function normalizeEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
         targetIsStreamDisplay && dataOut ? 'data' : (defSource.outputs[0]?.name ?? undefined)
     }
     if (!targetHandle) {
-      const firstConnectable = defTarget.inputs.find((i) => i.type !== 'walletAddress')
-      targetHandle = firstConnectable?.name
+      const connectable = connectableByTarget.get(e.target) ?? []
+      const used = usedTargetHandles.get(e.target) ?? new Set()
+      const firstUnused = connectable.find((c) => !used.has(c.name))
+      targetHandle = firstUnused?.name
     }
     if (!sourceHandle || !targetHandle) continue
+    if (targetHandle) {
+      if (!usedTargetHandles.has(e.target)) usedTargetHandles.set(e.target, new Set())
+      usedTargetHandles.get(e.target)!.add(targetHandle)
+    }
     result.push({ ...e, sourceHandle, targetHandle })
   }
   return result
@@ -170,7 +195,8 @@ function validateAndFilterEdges(nodes: Node[], edges: Edge[]): Edge[] {
     const sourceOk = sourceOutputs.some((o) => o.name === e.sourceHandle)
     if (!sourceOk) return false
     const targetInput = defTarget.inputs.find((i) => i.name === e.targetHandle)
-    if (!targetInput || targetInput.type === 'walletAddress') return false
+    if (!targetInput || targetInput.type === 'walletAddress' || targetInput.acceptsConnections === false)
+      return false
     return true
   })
 }

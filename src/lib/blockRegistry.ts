@@ -64,6 +64,8 @@ export interface InputField {
   sourceOutputsFrom?: string
   /** When true, the connection handle is only shown when the input value is empty (e.g. General Filter top/bottom) */
   showHandleWhenEmpty?: boolean
+  /** When false, this input never shows a connection handle (e.g. operator select, toggle) */
+  acceptsConnections?: boolean
 }
 
 export interface OutputField {

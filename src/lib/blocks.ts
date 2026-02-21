@@ -35,7 +35,7 @@ import {
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
 import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
-import { webhook, timeLoop, generalFilter } from '../services/general'
+import { webhook, timeLoop, intervalToMs, compareFilter } from '../services/general'
 
 // ─── Unified Hyperliquid Stream Block ───────────────────
 
@@ -293,28 +293,19 @@ registerBlock({
   },
 })
 
-// ─── General Filter ────────────────────────────────────────
+// ─── Compare Filter ────────────────────────────────────────
 
 registerBlock({
-  type: 'generalFilter',
-  label: 'General Filter',
-  description: 'Compare two values: connect blocks to top/bottom or type literals. Empty field shows connection handle; filled field uses that value and hides the handle.',
+  type: 'compareFilter',
+  label: 'Compare',
+  description: 'Compare two values with >, >=, <, or <=. Returns top if true, else bottom.',
   category: 'filter',
   color: 'yellow',
   icon: 'filter',
   inputs: [
     {
-      name: 'valueToFilterTop',
+      name: 'top',
       label: 'Top',
-      type: 'text',
-      placeholder: 'Connect or type value',
-      allowVariable: false,
-      accepts: ['json', 'string', 'number'],
-      showHandleWhenEmpty: true,
-    },
-    {
-      name: 'valueToFilterBottom',
-      label: 'Bottom',
       type: 'text',
       placeholder: 'Connect or type value',
       allowVariable: false,
@@ -325,49 +316,25 @@ registerBlock({
       name: 'operator',
       label: 'Operator',
       type: 'select',
-      options: [
-        'equals',
-        'not_equals',
-        'greater_than',
-        'less_than',
-        'gte',
-        'lte',
-        'contains',
-        'not_contains',
-        'exists',
-        'not_exists',
-        'empty',
-        'not_empty',
-      ],
-      defaultValue: 'greater_than',
-      optionDescriptions: {
-        equals: 'Top equals bottom',
-        not_equals: 'Top does not equal bottom',
-        greater_than: 'Top > bottom',
-        less_than: 'Top < bottom',
-        gte: 'Top >= bottom',
-        lte: 'Top <= bottom',
-        contains: 'Top contains bottom (string)',
-        not_contains: 'Top does not contain bottom',
-        exists: 'Top is non-empty',
-        not_exists: 'Top is empty or missing',
-        empty: 'Top is empty',
-        not_empty: 'Top is non-empty',
-      },
+      options: ['>', '>=', '<', '<='],
+      defaultValue: '>',
+      acceptsConnections: false,
     },
     {
-      name: 'passThrough',
-      label: 'Pass through when matched',
-      type: 'toggle',
-      defaultValue: 'true',
+      name: 'bottom',
+      label: 'Bottom',
+      type: 'text',
+      placeholder: 'Connect or type value',
+      allowVariable: false,
+      accepts: ['json', 'string', 'number'],
+      showHandleWhenEmpty: true,
     },
   ],
   outputs: [
+    { name: 'result', label: 'Result', type: 'string' },
     { name: 'passed', label: 'Passed', type: 'string' },
-    { name: 'matchedValue', label: 'Matched Value', type: 'string' },
-    { name: 'data', label: 'Data (when passed)', type: 'string' },
   ],
-  run: async (inputs) => generalFilter(inputs),
+  run: async (inputs) => compareFilter(inputs),
 })
 
 // ─── Output Display Block (Visualization / Debug) ──────────
@@ -478,7 +445,7 @@ registerBlock({
   type: 'getQuote',
   label: 'Get Quote',
   description: 'Fetch a swap quote without executing. Use with Value Filter to swap only when output meets threshold.',
-  category: 'filter',
+  category: 'action',
   service: 'uniswap',
   color: 'rose',
   icon: 'barChart',
@@ -538,21 +505,30 @@ registerBlock({
 registerBlock({
   type: 'timeLoop',
   label: 'Time Loop',
-  description: 'Trigger every x seconds (interrupt-based)',
+  description: 'Trigger at a fixed interval (seconds, minutes, hours, days, etc.)',
   category: 'trigger',
   color: 'yellow',
   icon: 'clock',
   inputs: [
-    { name: 'seconds', label: 'Seconds', type: 'slider', min: 1, max: 300, step: 1, defaultValue: '10' },
+    { name: 'interval', label: 'Interval', type: 'number', placeholder: '10', defaultValue: '10' },
+    {
+      name: 'unit',
+      label: 'Unit',
+      type: 'select',
+      options: ['seconds', 'minutes', 'hours', 'days', 'weeks', 'months', 'years'],
+      defaultValue: 'seconds',
+    },
   ],
   outputs: [
     { name: 'elapsed', label: 'Time Elapsed' },
   ],
   run: async (inputs) => timeLoop(inputs),
   subscribe: (inputs, onTrigger) => {
-    const seconds = parseFloat(inputs.seconds || '10')
-    const ms = Math.max(1000, seconds * 1000)
-    const id = setInterval(() => onTrigger({ elapsed: `${seconds}s` }), ms)
+    const value = parseFloat(inputs.interval || '10')
+    const unit = inputs.unit || 'seconds'
+    const ms = Math.max(1000, intervalToMs(value, unit))
+    const label = `${value} ${unit}`
+    const id = setInterval(() => onTrigger({ elapsed: label }), ms)
     return () => clearInterval(id)
   },
 })

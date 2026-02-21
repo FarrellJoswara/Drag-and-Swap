@@ -636,6 +636,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
             if (hiddenInputNames.has(field.name)) {
               return <div key={field.name} className="w-[5px]" aria-hidden />
             }
+            if (field.acceptsConnections === false) {
+              return <div key={field.name} className="w-[5px]" aria-hidden />
+            }
             if (field.showHandleWhenEmpty) {
               const value = (inputs[field.name] ?? '').trim()
               if (value !== '') {
