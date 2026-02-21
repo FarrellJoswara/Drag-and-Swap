@@ -87,13 +87,17 @@ function DropZone({
   )
 }
 
-// ── Connection info (when input is wired from another block) ──
+// ── Connection info (when input is wired from another block or has "From source" from sourceOutputsFrom) ──
 
 export type ConnectionInfo = {
-  edgeId: string
+  /** Set when there is an actual edge; unset for synthetic (sourceOutputsFrom) */
+  edgeId?: string
+  /** Source node id (for variable refs {{sourceNodeId.outputName}}) */
+  sourceNodeId?: string
   sourceBlockLabel: string
   availableOutputs: Array<{ name: string; label: string }>
-  currentSourceHandle: string
+  /** Set when there is an edge (which output is selected); unset for synthetic */
+  currentSourceHandle?: string
 }
 
 // ── Input type renderers ──────────────────────────────────
@@ -414,6 +418,63 @@ function KeyValueInput({ field, value = '', onChange, color }: BlockInputProps) 
   )
 }
 
+// ── Text input with "From source" dropdown (synthetic connectionInfo: sourceNodeId, no edge) ──
+
+function TextInputWithSourceDropdown({
+  field,
+  value = '',
+  onChange,
+  connectionInfo,
+  color,
+  hideSourceLabel = false,
+}: BlockInputProps & { connectionInfo: ConnectionInfo }) {
+  const focus = focusColorClass[color]
+  const { sourceNodeId, sourceBlockLabel, availableOutputs } = connectionInfo
+  const insertVariable = (outputName: string) => {
+    if (!sourceNodeId) return
+    const ref = `{{${sourceNodeId}.${outputName}}}`
+    onChange(ref)
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+      <div className="flex flex-col gap-0.5">
+        {!hideSourceLabel && sourceBlockLabel && (
+          <span className="text-[9px] text-slate-500">From source ({sourceBlockLabel}):</span>
+        )}
+        <div className="flex flex-col gap-1">
+          <DropZone value={value} onChange={onChange}>
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={field.placeholder}
+              className={`${baseInput(focus)} px-2.5 py-1.5`}
+            />
+          </DropZone>
+          <div className="relative">
+            <select
+              onChange={(e) => {
+                const name = e.target.value
+                if (name) insertVariable(name)
+                e.target.value = ''
+              }}
+              className={`nodrag ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-7 text-[11px]`}
+              defaultValue=""
+            >
+              <option value="">Pick an output to use…</option>
+              {availableOutputs.map((o) => (
+                <option key={o.name} value={o.name}>{o.label}</option>
+              ))}
+            </select>
+            <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Connected input (dropdown to pick which output flows) ──
 
 function ConnectedInputDropdown({
@@ -432,7 +493,7 @@ function ConnectedInputDropdown({
   const focus = focusColorClass[color]
   const { availableOutputs, sourceBlockLabel, currentSourceHandle } = connectionInfo
   const safeValue =
-    availableOutputs.some((o) => o.name === currentSourceHandle)
+    currentSourceHandle != null && availableOutputs.some((o) => o.name === currentSourceHandle)
       ? currentSourceHandle
       : (availableOutputs[0]?.name ?? '')
   return (
@@ -471,7 +532,7 @@ function ConnectedInputWithLiteral({
   const focus = focusColorClass[color]
   const { availableOutputs, sourceBlockLabel, currentSourceHandle } = connectionInfo
   const safeValue =
-    availableOutputs.some((o) => o.name === currentSourceHandle)
+    currentSourceHandle != null && availableOutputs.some((o) => o.name === currentSourceHandle)
       ? currentSourceHandle
       : (availableOutputs[0]?.name ?? '')
   return (
@@ -545,8 +606,10 @@ const renderers: Record<string, React.FC<BlockInputProps>> = {
 const CONNECTED_TYPES_WITH_LITERAL = ['text', 'textarea', 'number']
 
 export default function BlockInput(props: BlockInputProps) {
+  // Edge-based connectionInfo with dropdown to change source handle
   if (
     props.connectionInfo != null &&
+    props.connectionInfo.edgeId != null &&
     props.onSourceOutputChange != null &&
     props.field.type !== 'walletAddress'
   ) {
@@ -569,6 +632,22 @@ export default function BlockInput(props: BlockInputProps) {
         connectionInfo={props.connectionInfo}
         onSourceOutputChange={props.onSourceOutputChange}
         color={props.color}
+        hideSourceLabel={props.hideSourceLabel}
+      />
+    )
+  }
+  // Synthetic connectionInfo (sourceOutputsFrom): "From source" dropdown that inserts {{nodeId.outputName}}
+  if (
+    props.connectionInfo != null &&
+    props.connectionInfo.sourceNodeId != null &&
+    props.connectionInfo.edgeId == null &&
+    props.field.type === 'text' &&
+    props.field.allowVariable !== false
+  ) {
+    return (
+      <TextInputWithSourceDropdown
+        {...props}
+        connectionInfo={props.connectionInfo}
         hideSourceLabel={props.hideSourceLabel}
       />
     )

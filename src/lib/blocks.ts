@@ -35,7 +35,7 @@ import {
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
 import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
-import { webhook, timeLoop } from '../services/general'
+import { webhook, timeLoop, generalFilter } from '../services/general'
 
 // ─── Unified Hyperliquid Stream Block ───────────────────
 
@@ -293,7 +293,102 @@ registerBlock({
   },
 })
 
+// ─── General Filter ────────────────────────────────────────
+
+registerBlock({
+  type: 'generalFilter',
+  label: 'General Filter',
+  description: 'Compare two values: connect blocks to top/bottom or type literals. Empty field shows connection handle; filled field uses that value and hides the handle.',
+  category: 'filter',
+  color: 'yellow',
+  icon: 'filter',
+  inputs: [
+    {
+      name: 'valueToFilterTop',
+      label: 'Top',
+      type: 'text',
+      placeholder: 'Connect or type value',
+      allowVariable: false,
+      accepts: ['json', 'string', 'number'],
+      showHandleWhenEmpty: true,
+    },
+    {
+      name: 'valueToFilterBottom',
+      label: 'Bottom',
+      type: 'text',
+      placeholder: 'Connect or type value',
+      allowVariable: false,
+      accepts: ['json', 'string', 'number'],
+      showHandleWhenEmpty: true,
+    },
+    {
+      name: 'operator',
+      label: 'Operator',
+      type: 'select',
+      options: [
+        'equals',
+        'not_equals',
+        'greater_than',
+        'less_than',
+        'gte',
+        'lte',
+        'contains',
+        'not_contains',
+        'exists',
+        'not_exists',
+        'empty',
+        'not_empty',
+      ],
+      defaultValue: 'greater_than',
+      optionDescriptions: {
+        equals: 'Top equals bottom',
+        not_equals: 'Top does not equal bottom',
+        greater_than: 'Top > bottom',
+        less_than: 'Top < bottom',
+        gte: 'Top >= bottom',
+        lte: 'Top <= bottom',
+        contains: 'Top contains bottom (string)',
+        not_contains: 'Top does not contain bottom',
+        exists: 'Top is non-empty',
+        not_exists: 'Top is empty or missing',
+        empty: 'Top is empty',
+        not_empty: 'Top is non-empty',
+      },
+    },
+    {
+      name: 'passThrough',
+      label: 'Pass through when matched',
+      type: 'toggle',
+      defaultValue: 'true',
+    },
+  ],
+  outputs: [
+    { name: 'passed', label: 'Passed', type: 'string' },
+    { name: 'matchedValue', label: 'Matched Value', type: 'string' },
+    { name: 'data', label: 'Data (when passed)', type: 'string' },
+  ],
+  run: async (inputs) => generalFilter(inputs),
+})
+
 // ─── Output Display Block (Visualization / Debug) ──────────
+
+function getStreamDisplayOutputs(inputs: Record<string, string>): { name: string; label: string; type?: 'string' | 'number' | 'address' | 'json' | 'boolean' }[] {
+  const raw = (inputs.data ?? '').trim()
+  if (!raw) return [{ name: 'lastEvent', label: 'Last Event (JSON)', type: 'json' }]
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.keys(parsed).map((key) => ({
+        name: key,
+        label: key.charAt(0).toUpperCase() + key.slice(1),
+        type: 'string' as const,
+      }))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [{ name: 'lastEvent', label: 'Last Event (JSON)', type: 'json' }]
+}
 
 registerBlock({
   type: 'streamDisplay',
@@ -311,7 +406,7 @@ registerBlock({
       placeholder: '',
       rows: 1,
       allowVariable: true,
-      accepts: ['json', 'string'],
+      accepts: ['json', 'string', 'number'],
     },
     {
       name: 'fields',
@@ -327,41 +422,31 @@ registerBlock({
       type: 'json',
     },
   ],
-  run: async (inputs) => {
-    let lastEvent = ''
+  getOutputs: getStreamDisplayOutputs,
+  run: async (inputs): Promise<Record<string, string>> => {
+    const raw = inputs.data ?? ''
+    if (typeof raw !== 'string') {
+      const obj = raw as Record<string, unknown>
+      const result: Record<string, string> = {}
+      for (const k of Object.keys(obj)) result[k] = String(obj[k] ?? '')
+      return result
+    }
+    if (!raw.trim()) {
+      return { lastEvent: '' }
+    }
     try {
-      const raw = inputs.data ?? ''
-      if (typeof raw !== 'string') {
-        lastEvent = JSON.stringify(raw)
-        return { lastEvent }
-      }
-      if (!raw.trim()) {
-        return { lastEvent: '' }
-      }
       const parsed = JSON.parse(raw)
-      let selectedKeys: string[] = []
-      try {
-        const fieldsRaw = (inputs.fields ?? '').trim()
-        if (fieldsRaw) selectedKeys = JSON.parse(fieldsRaw)
-        if (!Array.isArray(selectedKeys)) selectedKeys = []
-      } catch {
-        selectedKeys = []
-      }
-      if (selectedKeys.length > 0 && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const filtered: Record<string, unknown> = {}
-        for (const key of selectedKeys) {
-          if (key in parsed) filtered[key] = (parsed as Record<string, unknown>)[key]
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const result: Record<string, string> = {}
+        for (const [k, v] of Object.entries(parsed)) {
+          result[k] = v == null ? '' : String(v)
         }
-        lastEvent = Object.keys(filtered).length > 0 ? JSON.stringify(filtered) : ''
-      } else if (selectedKeys.length === 0) {
-        lastEvent = ''
-      } else {
-        lastEvent = JSON.stringify(parsed)
+        return result
       }
     } catch {
-      lastEvent = typeof inputs.data === 'string' ? inputs.data : ''
+      /* ignore */
     }
-    return { lastEvent }
+    return { lastEvent: typeof raw === 'string' ? raw : '' }
   },
 })
 

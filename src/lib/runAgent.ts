@@ -166,8 +166,7 @@ export async function runDownstreamGraph(
       outputs.set(nodeId, result)
       processed.add(nodeId)
       if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
-        const val = (result as { lastEvent?: string }).lastEvent
-        options.onDisplayUpdate(nodeId, typeof val === 'string' ? val : '')
+        options.onDisplayUpdate(nodeId, JSON.stringify(result, null, 2))
       }
       console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, result)
       for (const out of node.outputs) {

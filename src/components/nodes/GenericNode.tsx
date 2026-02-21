@@ -126,10 +126,23 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const edges = useEdges()
 
   // Resolved outputs (dynamic per stream type / settings); fallback to definition.outputs
-  const resolvedOutputs = useMemo(
-    () => getOutputsForBlock(blockType, data),
-    [blockType, data],
-  )
+  // For Output Display: only show outputs when data input is connected (source block's outputs); otherwise show none
+  const resolvedOutputs = useMemo(() => {
+    if (blockType === 'streamDisplay') {
+      const dataEdge = edges.find((e) => e.target === id && e.targetHandle === 'data')
+      if (dataEdge) {
+        const nodes = getNodes()
+        const sourceNode = nodes.find((n) => n.id === dataEdge.source)
+        if (sourceNode) {
+          const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
+          const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+          if (sourceOutputs.length > 0) return sourceOutputs
+        }
+      }
+      return []
+    }
+    return getOutputsForBlock(blockType, data)
+  }, [blockType, data, edges, id, getNodes])
 
   // Count connections for each output: only the output handle that actually has an edge shows green
   const outputConnections = useMemo(() => {
@@ -156,31 +169,51 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   }, [edges, id, definition.inputs])
 
   // Connection info for inputs that have an incoming edge (for output dropdown)
+  // Plus synthetic connectionInfo for inputs with sourceOutputsFrom (no edge; "From source" from another input's source)
   // Skip trigger-only connections: triggers are for execution order, not data flow (except streamDisplay data)
   const connectionInfoByInput = useMemo(() => {
     const nodes = getNodes()
     const result: Record<string, ConnectionInfo> = {}
     for (const field of definition.inputs) {
       const edge = edges.find((e) => e.target === id && e.targetHandle === field.name)
-      if (!edge) continue
-      const sourceNode = nodes.find((n) => n.id === edge.source)
+      if (edge) {
+        const sourceNode = nodes.find((n) => n.id === edge.source)
+        if (!sourceNode) continue
+        const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
+        const sourceDef = getBlock(sourceBlockType)
+        if (!sourceDef) continue
+        if (sourceDef.category === 'trigger' && !(blockType === 'streamDisplay' && field.name === 'data')) {
+          continue // Trigger connections don't pass data; show literal input instead
+        }
+        const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+        if (!sourceOutputs.length) continue
+        const currentSourceHandle = sourceOutputs.some((o) => o.name === edge.sourceHandle)
+          ? (edge.sourceHandle ?? sourceOutputs[0].name)
+          : sourceOutputs[0].name
+        result[field.name] = {
+          edgeId: edge.id,
+          sourceNodeId: sourceNode.id,
+          sourceBlockLabel: sourceDef.label,
+          availableOutputs: sourceOutputs.map((o) => ({ name: o.name, label: o.label })),
+          currentSourceHandle,
+        }
+        continue
+      }
+      // Synthetic: no edge on this input but field has sourceOutputsFrom → use source from the referenced input
+      const fromInputName = field.sourceOutputsFrom
+      if (!fromInputName) continue
+      const fromEdge = edges.find((e) => e.target === id && e.targetHandle === fromInputName)
+      if (!fromEdge) continue
+      const sourceNode = nodes.find((n) => n.id === fromEdge.source)
       if (!sourceNode) continue
       const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
-      const sourceDef = getBlock(sourceBlockType)
-      if (!sourceDef) continue
-      if (sourceDef.category === 'trigger' && !(blockType === 'streamDisplay' && field.name === 'data')) {
-        continue // Trigger connections don't pass data; show literal input instead
-      }
       const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
       if (!sourceOutputs.length) continue
-      const currentSourceHandle = sourceOutputs.some((o) => o.name === edge.sourceHandle)
-        ? (edge.sourceHandle ?? sourceOutputs[0].name)
-        : sourceOutputs[0].name
+      const sourceDef = getBlock(sourceBlockType)
       result[field.name] = {
-        edgeId: edge.id,
-        sourceBlockLabel: sourceDef.label,
+        sourceNodeId: sourceNode.id,
+        sourceBlockLabel: sourceDef?.label ?? sourceBlockType,
         availableOutputs: sourceOutputs.map((o) => ({ name: o.name, label: o.label })),
-        currentSourceHandle,
       }
     }
     return result
@@ -597,8 +630,17 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
             if (blockType === 'streamDisplay' && field.name === 'fields') {
               return <div key={field.name} className="w-[5px]" aria-hidden />
             }
+            if (field.sourceOutputsFrom) {
+              return <div key={field.name} className="w-[5px]" aria-hidden />
+            }
             if (hiddenInputNames.has(field.name)) {
               return <div key={field.name} className="w-[5px]" aria-hidden />
+            }
+            if (field.showHandleWhenEmpty) {
+              const value = (inputs[field.name] ?? '').trim()
+              if (value !== '') {
+                return <div key={field.name} className="w-[5px]" aria-hidden />
+              }
             }
             const isConnected = inputConnections[field.name]
             return (

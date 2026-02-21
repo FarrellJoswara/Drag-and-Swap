@@ -60,6 +60,10 @@ export interface InputField {
   accepts?: string[]
   /** Optional map of option value -> description for select dropdowns (hover tooltips) */
   optionDescriptions?: Record<string, string>
+  /** When set (e.g. 'valueToFilter'), this input gets a "From source" dropdown from the block connected to the named input; no edge on this input */
+  sourceOutputsFrom?: string
+  /** When true, the connection handle is only shown when the input value is empty (e.g. General Filter top/bottom) */
+  showHandleWhenEmpty?: boolean
 }
 
 export interface OutputField {
