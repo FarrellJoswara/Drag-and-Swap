@@ -1805,7 +1805,12 @@ registerBlock({
     { name: 'response', label: 'Response', type: 'json' },
   ],
   getVisibleInputs: () => ['chatId', 'message'],
-  run: async (inputs) => sendTelegram({ ...inputs, botToken: getAppTelegramBotToken() }),
+  run: async (inputs) =>
+    sendTelegram({
+      ...inputs,
+      botToken: getAppTelegramBotToken(),
+      useCorsProxy: 'true',
+    }),
 })
 
 // ─── Get wallet balance ──────────────────────────────────────────────────

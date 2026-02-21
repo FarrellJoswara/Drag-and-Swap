@@ -5,6 +5,7 @@ import type { DeployedAgent } from '../types/agent'
 import { useDisplayValue } from '../contexts/DisplayValueContext'
 import { useGraphSeries } from '../contexts/GraphSeriesContext'
 import { useCurrentFlow } from '../contexts/CurrentFlowContext'
+import { useRunProgress } from '../contexts/RunProgressContext'
 import { buildConnectedModel } from '../utils/buildConnectedModel'
 
 /**
@@ -24,6 +25,7 @@ export function useActiveAgentRunners(
   const { setDisplayValue } = useDisplayValue()
   const { appendPoint, getPaused } = useGraphSeries()
   const { getCurrentFlow } = useCurrentFlow()
+  const { startRun, endRun, onBlockStart, onBlockComplete } = useRunProgress()
 
   const getModel = useCallback(
     (agentId: string) => {
@@ -72,6 +74,10 @@ export function useActiveAgentRunners(
             if (!getPaused(agentId, nodeId)) appendPoint(agentId, nodeId, point, seriesIndex)
           },
           getModel,
+          onRunStart: startRun,
+          onRunEnd: endRun,
+          onBlockStart,
+          onBlockComplete,
         },
       )
       cleanups.push(unsub)
@@ -80,5 +86,5 @@ export function useActiveAgentRunners(
     return () => {
       for (const cleanup of cleanups) cleanup()
     }
-  }, [active, triggerInputsSignature, setDisplayValue, appendPoint, getPaused, getModel])
+  }, [active, triggerInputsSignature, setDisplayValue, appendPoint, getPaused, getModel, startRun, endRun, onBlockStart, onBlockComplete])
 }

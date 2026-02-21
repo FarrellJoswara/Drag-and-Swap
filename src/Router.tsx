@@ -13,6 +13,7 @@ import { DisplayValueProvider } from './contexts/DisplayValueContext'
 import { CurrentFlowProvider } from './contexts/CurrentFlowContext'
 import { GraphSeriesProvider } from './contexts/GraphSeriesContext'
 import { RunProgressProvider } from './contexts/RunProgressContext'
+import RunProgressPanel from './components/ui/RunProgressPanel'
 
 function AgentRunners() {
   const { agents } = useAgents()
@@ -40,6 +41,7 @@ export default function Router() {
           <RunProgressProvider>
           <CurrentFlowProvider>
             <AgentRunners />
+            <RunProgressPanel />
             <Routes>
           <Route path="/" element={<AgentsHome />} />
           <Route path="/new" element={<App />} />

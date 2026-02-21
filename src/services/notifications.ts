@@ -3,7 +3,9 @@
  * Telegram uses Bot API; Discord uses webhook URL.
  */
 
-const CORS_PROXY = 'https://corsproxy.io/?'
+function withCorsProxy(url: string): string {
+  return `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+}
 
 /** Telegram update from getUpdates (message part). */
 export type TelegramMessageUpdate = {
@@ -22,23 +24,43 @@ export async function sendTelegram(inputs: Record<string, string>): Promise<Reco
   const chatId = (inputs.chatId ?? '').trim()
   const text = (inputs.message ?? '').trim()
   if (!botToken || !chatId) {
-    throw new Error('Telegram: bot token and chat ID are required')
+    throw new Error('Telegram: bot token and chat ID are required. Connect Get Telegram\'s chatId to Send Telegram\'s Chat ID to reply to the same chat.')
   }
+  if (!text) {
+    throw new Error('Telegram: message cannot be empty. Enter text or connect Get Telegram\'s messageText.')
+  }
+  const parseMode = inputs.parseMode || 'HTML'
+  const body = { botToken, chatId, message: text, parseMode }
+
+  // Server proxy (Vercel) or Vite plugin (local dev) — bypasses CORS
+  const apiRes = await fetch('/api/telegram-send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => null)
+
+  const isJson = apiRes?.headers.get('content-type')?.includes('application/json')
+  if (apiRes?.ok && isJson) {
+    const data = (await apiRes.json().catch(() => ({}))) as { ok?: boolean; description?: string }
+    const ok = data?.ok === true
+    if (!ok && data?.description) throw new Error(`Telegram API: ${data.description}`)
+    return { ok: ok ? 'true' : 'false', status: String(apiRes.status), response: JSON.stringify(data) }
+  }
+
+  // Fallback: CORS proxy (for local dev when /api is not available)
+  const useCorsProxy = inputs.useCorsProxy !== 'false'
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`
-  const body = JSON.stringify({ chat_id: chatId, text })
-  const target = CORS_PROXY + encodeURIComponent(url)
+  const tgBody = JSON.stringify({ chat_id: chatId, text, parse_mode: parseMode })
+  const target = useCorsProxy ? withCorsProxy(url) : url
   const res = await fetch(target, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body,
+    body: tgBody,
   })
-  const data = await res.json().catch(() => ({}))
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string }
   const ok = data?.ok === true
-  return {
-    ok: ok ? 'true' : 'false',
-    status: String(res.status),
-    response: JSON.stringify(data),
-  }
+  if (!ok && data?.description) throw new Error(`Telegram API: ${data.description}`)
+  return { ok: ok ? 'true' : 'false', status: String(res.status), response: JSON.stringify(data) }
 }
 
 export async function sendDiscord(inputs: Record<string, string>): Promise<Record<string, string>> {
@@ -53,7 +75,7 @@ export async function sendDiscord(inputs: Record<string, string>): Promise<Recor
   })
   let target = webhookUrl
   if (inputs.useCorsProxy === 'true') {
-    target = CORS_PROXY + encodeURIComponent(webhookUrl)
+    target = withCorsProxy(webhookUrl)
   }
   const res = await fetch(target, {
     method: 'POST',
@@ -72,16 +94,34 @@ export async function sendDiscord(inputs: Record<string, string>): Promise<Recor
 
 /**
  * Fetch pending updates from Telegram Bot API. Used by the Telegram message trigger.
+ * Uses server proxy when available (no CORS); falls back to CORS proxy for local dev.
  */
 async function getTelegramUpdates(
   botToken: string,
   offset: number,
+  useCorsProxy: boolean,
 ): Promise<{ updates: TelegramMessageUpdate[]; nextOffset: number }> {
   if (!botToken.trim()) return { updates: [], nextOffset: offset }
-  const url = `https://api.telegram.org/bot${botToken.trim()}/getUpdates?offset=${offset}&limit=100&timeout=0`
-  const target = CORS_PROXY + encodeURIComponent(url)
-  const res = await fetch(target, { method: 'GET' })
-  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }
+  const token = botToken.trim()
+
+  // Server proxy (Vercel) or Vite plugin (local dev) — bypasses CORS
+  const apiRes = await fetch('/api/telegram-get-updates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ botToken: token, offset }),
+  }).catch(() => null)
+
+  const isJson = apiRes?.headers.get('content-type')?.includes('application/json')
+  let data: { ok?: boolean; result?: unknown[] } = {}
+  if (apiRes?.ok && isJson) {
+    data = (await apiRes.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }
+  } else {
+    // Fallback: CORS proxy (for local dev when /api is not available)
+    const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&limit=100&timeout=30`
+    const target = useCorsProxy ? withCorsProxy(url) : url
+    const res = await fetch(target, { method: 'GET' })
+    data = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }
+  }
   const updates: TelegramMessageUpdate[] = []
   let nextOffset = offset
   if (data?.ok && Array.isArray(data.result)) {
@@ -114,38 +154,70 @@ function normalizeHandle(h: string): string {
 
 /**
  * Start polling Telegram getUpdates and call onMessage for each new message.
+ * Skips all messages that were already pending when polling started (only fires for new messages).
  * Returns a cleanup function to stop polling.
  */
 export function startTelegramMessagePolling(
   botToken: string,
-  options: { chatIdFilter?: string; fromHandleFilter?: string; pollIntervalSeconds?: number },
+  options: { useCorsProxy?: boolean; chatIdFilter?: string; fromHandleFilter?: string; pollIntervalSeconds?: number },
   onMessage: (out: Record<string, string>) => void,
 ): () => void {
+  const useCorsProxy = options.useCorsProxy !== false
   const chatIdFilter = (options.chatIdFilter ?? '').trim()
   const fromHandleFilter = normalizeHandle(options.fromHandleFilter ?? '')
   const intervalMs = Math.max(2000, Math.min(60000, (options.pollIntervalSeconds ?? 5) * 1000))
   let offset = 0
-  const id = setInterval(async () => {
+  let pollInProgress = false
+  let initialAckDone = false
+
+  const doPoll = async (skipFiring = false) => {
+    if (pollInProgress) return
+    pollInProgress = true
     try {
-      const { updates, nextOffset } = await getTelegramUpdates(botToken, offset)
+      const { updates, nextOffset } = await getTelegramUpdates(botToken, offset, useCorsProxy)
       offset = nextOffset
+      if (skipFiring) {
+        initialAckDone = true
+        return
+      }
+      if (!initialAckDone) return
       for (const u of updates) {
         if (chatIdFilter && u.chatId !== chatIdFilter) continue
         if (fromHandleFilter && normalizeHandle(u.username) !== fromHandleFilter) continue
-        onMessage({
-          messageText: u.messageText,
-          chatId: u.chatId,
-          fromId: u.fromId,
-          username: u.username,
-          firstName: u.firstName,
-          updateId: u.updateId,
-          messageId: u.messageId,
-          date: u.date,
-        })
+        try {
+          onMessage({
+            messageText: u.messageText,
+            chatId: u.chatId,
+            fromId: u.fromId,
+            username: u.username,
+            firstName: u.firstName,
+            updateId: u.updateId,
+            messageId: u.messageId,
+            date: u.date,
+          })
+        } catch (e) {
+          console.warn('[Telegram trigger] onMessage failed for update', u.updateId, e)
+        }
       }
     } catch (e) {
       console.warn('[Telegram trigger] getUpdates failed:', e)
+    } finally {
+      pollInProgress = false
     }
-  }, intervalMs)
-  return () => clearInterval(id)
+  }
+
+  // Initial ack: consume all pending (old) updates without firing, so we only trigger for new messages
+  let intervalId: ReturnType<typeof setInterval> | null = null
+  let cancelled = false
+  const run = async () => {
+    await doPoll(true)
+    if (cancelled) return
+    intervalId = setInterval(() => doPoll(false), intervalMs)
+    doPoll(false)
+  }
+  run()
+  return () => {
+    cancelled = true
+    if (intervalId) clearInterval(intervalId)
+  }
 }

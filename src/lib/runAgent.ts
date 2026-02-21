@@ -391,12 +391,16 @@ export async function runDownstreamGraph(
       console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, result)
       // Queue downstream: when edge uses execution handle (exec-out), block result has no such key,
       // so treat as "has output" if result exists; otherwise require truthy value (conditional branching).
+      // For conditional blocks (generalComparator, stringMatch, etc.), only continue when passed === 'true'.
+      const isConditionalBlock = result?.passed !== undefined
+      const conditionPassed = !isConditionalBlock || result.passed === 'true'
       for (const out of node.outputs) {
         const handleName = out.sourceHandle ?? Object.keys(result)[0]
         const outVal = handleName != null ? result[handleName] : undefined
         const hasOutput =
-          (outVal != null && String(outVal).trim() !== '') ||
-          (handleName === EXEC_OUT_HANDLE && result != null && typeof result === 'object' && Object.keys(result).length > 0)
+          conditionPassed &&
+          ((outVal != null && String(outVal).trim() !== '') ||
+            (handleName === EXEC_OUT_HANDLE && result != null && typeof result === 'object' && Object.keys(result).length > 0))
         if (hasOutput && !processed.has(out.targetNodeId) && !queue.includes(out.targetNodeId)) {
           queue.push(out.targetNodeId)
         }
@@ -416,6 +420,14 @@ export type SubscribeOptions = {
   onMultigraphPointUpdate?: (agentId: string, nodeId: string, seriesIndex: number, point: GraphPoint) => void
   /** When provided, use this model (e.g. current editor flow) instead of saved model when running downstream. Enables "Fields to Show" toggles without saving. */
   getModel?: (agentId: string) => ConnectedModel | null
+  /** Called when a trigger run starts (for progress UI). */
+  onRunStart?: (triggerNodeId: string) => void
+  /** Called when a trigger run ends. */
+  onRunEnd?: () => void
+  /** Called when a block starts executing (for progress UI). */
+  onBlockStart?: (nodeId: string, blockType: string, label: string) => void
+  /** Called when a block completes (for progress UI). */
+  onBlockComplete?: (nodeId: string, blockType: string, label: string, result?: Record<string, string>) => void
 }
 
 /**
@@ -434,6 +446,8 @@ export function subscribeToAgent(
   if (subscribeOptions?.onDisplayUpdate) runOptions.onDisplayUpdate = subscribeOptions.onDisplayUpdate
   if (subscribeOptions?.onGraphPointUpdate) runOptions.onGraphPointUpdate = subscribeOptions.onGraphPointUpdate
   if (subscribeOptions?.onMultigraphPointUpdate) runOptions.onMultigraphPointUpdate = subscribeOptions.onMultigraphPointUpdate
+  if (subscribeOptions?.onBlockStart) runOptions.onBlockStart = subscribeOptions.onBlockStart
+  if (subscribeOptions?.onBlockComplete) runOptions.onBlockComplete = subscribeOptions.onBlockComplete
   const getModel = subscribeOptions?.getModel
   const modelForInputs = getModel ? (getModel(agentId) ?? model) : model
 
@@ -453,9 +467,10 @@ export function subscribeToAgent(
     const unsub = def.subscribe!(inputs, (outputs) => {
       const payload: TriggerPayload = { agentId, nodeId: node.id, outputs }
       const modelToUse = getModel?.(agentId) ?? model
-      runDownstreamGraph(modelToUse, node.id, outputs, context, runOptions).catch((err) =>
-        console.error('[runAgent] Downstream execution failed:', err),
-      )
+      subscribeOptions?.onRunStart?.(node.id)
+      runDownstreamGraph(modelToUse, node.id, outputs, context, runOptions)
+        .catch((err) => console.error('[runAgent] Downstream execution failed:', err))
+        .finally(() => subscribeOptions?.onRunEnd?.())
       onTrigger(payload)
     }, runContext)
     cleanups.push(unsub)
