@@ -415,13 +415,25 @@ export function subscribeToAgent(
       const sourceBlockType = (source?.data?.blockType as string) ?? source?.type
       return sourceBlockType === 'hyperliquidStream'
     })
-    if (!streamConn) {
+
+    // Resolve source: explicit edge, or fallback when exactly one hyperliquidStream exists (handles filtered/lost edges)
+    let sourceNode: (typeof modelForInputs.nodes)[0] | undefined
+    if (streamConn) {
+      sourceNode = nodeMap.get(streamConn.sourceNodeId)
+    } else {
+      const streamNodes = modelForInputs.nodes.filter((n) => {
+        const bt = (n.data?.blockType as string) ?? n.type
+        return bt === 'hyperliquidStream'
+      })
+      if (streamNodes.length === 1) {
+        sourceNode = streamNodes[0]
+        console.log('[runAgent] Stream-trigger using fallback: single hyperliquidStream in model:', blockType, node.id)
+      }
+    }
+    if (!sourceNode) {
       console.warn('[runAgent] Stream-trigger node has no incoming connection from Hyperliquid Stream:', blockType, node.id)
       continue
     }
-
-    const sourceNode = nodeMap.get(streamConn.sourceNodeId)
-    if (!sourceNode) continue
 
     const rawStreamType = (sourceNode.data?.streamType as string) ?? 'trades'
     const streamType = normalizeStreamType(rawStreamType) as HyperliquidStreamType
