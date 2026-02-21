@@ -108,7 +108,15 @@ export async function runDownstreamGraph(
       if (conn) {
         const srcOuts = outputs.get(conn.sourceNodeId)
         if (srcOuts) {
-          const outName = conn.sourceHandle ?? Object.keys(srcOuts)[0]
+          // Stream Display "data" input: always use source's "data" output (full event JSON) when present, so user sees useful output instead of e.g. "A"/"B" from "side"
+          const useDataForDisplay =
+            def.type === 'streamDisplay' &&
+            field.name === 'data' &&
+            srcOuts.data != null &&
+            String(srcOuts.data).trim() !== ''
+          const outName = useDataForDisplay
+            ? 'data'
+            : (conn.sourceHandle ?? Object.keys(srcOuts)[0])
           const connectedVal = srcOuts[outName] ?? val
           if (storedVal.trim() !== '') {
             val = storedVal
@@ -157,6 +165,8 @@ export async function runDownstreamGraph(
 export type SubscribeOptions = {
   /** When a streamDisplay node completes, called with its node id and lastEvent value (for TV preview). */
   onDisplayUpdate?: (nodeId: string, value: string) => void
+  /** When provided, use this model (e.g. current editor flow) instead of saved model when running downstream. Enables "Fields to Show" toggles without saving. */
+  getModel?: (agentId: string) => ConnectedModel | null
 }
 
 /**
@@ -175,6 +185,7 @@ export function subscribeToAgent(
     subscribeOptions?.onDisplayUpdate
       ? { onDisplayUpdate: subscribeOptions.onDisplayUpdate }
       : undefined
+  const getModel = subscribeOptions?.getModel
 
   for (const node of model.nodes) {
     const blockType = (node.data?.blockType as string) ?? (node.type as string)
@@ -190,7 +201,8 @@ export function subscribeToAgent(
 
     const unsub = def.subscribe!(inputs, (outputs) => {
       const payload: TriggerPayload = { agentId, nodeId: node.id, outputs }
-      runDownstreamGraph(model, node.id, outputs, context, runOptions).catch((err) =>
+      const modelToUse = getModel?.(agentId) ?? model
+      runDownstreamGraph(modelToUse, node.id, outputs, context, runOptions).catch((err) =>
         console.error('[runAgent] Downstream execution failed:', err),
       )
       onTrigger(payload)

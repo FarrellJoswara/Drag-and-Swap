@@ -421,7 +421,9 @@ registerBlock({
         for (const key of selectedKeys) {
           if (key in parsed) filtered[key] = (parsed as Record<string, unknown>)[key]
         }
-        lastEvent = Object.keys(filtered).length > 0 ? JSON.stringify(filtered) : JSON.stringify(parsed)
+        lastEvent = Object.keys(filtered).length > 0 ? JSON.stringify(filtered) : ''
+      } else if (selectedKeys.length === 0) {
+        lastEvent = ''
       } else {
         lastEvent = JSON.stringify(parsed)
       }

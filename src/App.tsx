@@ -25,6 +25,7 @@ import { useUndoRedo } from './hooks/useUndoRedo'
 import { useWalletAddress } from './hooks/useWalletAddress'
 import { useAgents } from './contexts/AgentsContext'
 import { AgentIdProvider } from './contexts/AgentIdContext'
+import { useCurrentFlow } from './contexts/CurrentFlowContext'
 import { getBlock, minimapColor } from './lib/blockRegistry'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
@@ -137,8 +138,10 @@ function normalizeEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
     let sourceHandle = e.sourceHandle && String(e.sourceHandle).trim() ? e.sourceHandle : undefined
     let targetHandle = e.targetHandle && String(e.targetHandle).trim() ? e.targetHandle : undefined
     if (!sourceHandle) {
-      const first = defSource.outputs[0]
-      sourceHandle = first?.name
+      const dataOut = defSource.outputs.find((o) => o.name === 'data')
+      const targetIsStreamDisplay = targetBlock === 'streamDisplay'
+      sourceHandle =
+        targetIsStreamDisplay && dataOut ? 'data' : (defSource.outputs[0]?.name ?? undefined)
     }
     if (!targetHandle) {
       const firstConnectable = defTarget.inputs.find((i) => i.type !== 'walletAddress')
@@ -236,6 +239,7 @@ export default function App() {
   const reactFlowInstance = useRef<Parameters<typeof ReactFlow>[0] & { screenToFlowPosition?: (pos: { x: number; y: number }) => { x: number; y: number } }>(null)
 
   const { toast } = useToast()
+  const { setCurrentFlow } = useCurrentFlow()
   const { takeSnapshot, undo, redo, canUndo, canRedo } = useUndoRedo(nodes, edges)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const clipboard = useRef<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] })
@@ -291,6 +295,13 @@ export default function App() {
   useEffect(() => {
     prevUnsavedRef.current = false
   }, [agentId])
+
+  // Expose current flow for active agent runners so "Fields to Show" and other toggles apply without saving.
+  useEffect(() => {
+    if (!agentId) return
+    setCurrentFlow(agentId, { nodes, edges })
+    return () => setCurrentFlow(agentId, null)
+  }, [agentId, nodes, edges, setCurrentFlow])
 
   // When user makes an edit (hasUnsavedChanges false → true) and agent is active, auto-turn off until they save.
   // Only run after we've loaded this agent's flow (hasLoadedForAgentRef) so we don't turn off on first paint.
