@@ -31,24 +31,6 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-/** Get color class for output type */
-function getTypeColor(type?: string): string {
-  switch (type) {
-    case 'number':
-      return 'bg-green-500/20 text-green-400 border-green-500/30'
-    case 'string':
-      return 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-    case 'address':
-      return 'bg-purple-500/20 text-purple-400 border-purple-500/30'
-    case 'json':
-      return 'bg-orange-500/20 text-orange-400 border-orange-500/30'
-    case 'boolean':
-      return 'bg-pink-500/20 text-pink-400 border-pink-500/30'
-    default:
-      return 'bg-slate-500/20 text-slate-400 border-slate-500/30'
-  }
-}
-
 export default function GenericNode({ id, data, selected }: NodeProps) {
   const blockType = data.blockType as string
   const definition = getBlock(blockType)
@@ -178,31 +160,12 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const Icon = getBlockIcon(definition.icon)
   const edges = useEdges()
 
-  // Resolved outputs (dynamic per stream type / settings); fallback to definition.outputs
-  // For streamDisplay: use inputSources.data when set (execution-upstream data binding), else no outputs
-  const resolvedOutputs = useMemo(() => {
-    if (blockType === 'streamDisplay') {
-      const inputSources = (data.inputSources as Record<string, { sourceNodeId: string; outputName: string }> | undefined) ?? {}
-      const dataSource = inputSources['data']
-      if (dataSource) {
-        const nodes = getNodes()
-        const sourceNode = nodes.find((n) => n.id === dataSource.sourceNodeId)
-        if (sourceNode) {
-          const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
-          const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
-          if (sourceOutputs.length > 0) return sourceOutputs
-        }
-      }
-      return []
-    }
-    return getOutputsForBlock(blockType, data)
-  }, [blockType, data, id, getNodes])
-
   // Count execution edges from this node (single exec-out handle)
   const outputConnections = useMemo(() => {
     const count = edges.filter((e) => e.source === id && (e.sourceHandle === EXEC_OUT_HANDLE || e.sourceHandle == null)).length
     return { [EXEC_OUT_HANDLE]: count } as Record<string, number>
   }, [edges, id])
+  const execOutCount = outputConnections[EXEC_OUT_HANDLE] ?? 0
 
   // Execution upstream: nodes that feed into this node via execution edges (for data source picker)
   const executionUpstreamNodeIds = useMemo(() => {
@@ -414,44 +377,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     ? definition.inputs.filter((f) => !mainInputNames.has(f.name) && !hiddenInputNames.has(f.name) && isVisible(f.name))
     : []
 
-  const execOutCount = outputConnections[EXEC_OUT_HANDLE] ?? 0
-  const renderOutputsSection = () =>
-    resolvedOutputs.length > 0 ? (
-      <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-800/60">
-        <span className="text-[9px] font-medium text-slate-600 uppercase tracking-wider">
-          Outputs
-        </span>
-        {resolvedOutputs.map((out) => {
-          const connectionCount = execOutCount
-          return (
-            <div key={out.name} className="flex items-center gap-1.5 group relative">
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  connectionCount > 0 ? 'bg-emerald-400' : 'bg-slate-600'
-                }`}
-              />
-              <span className="text-[10px] text-slate-500 flex-1">{out.label}</span>
-              {out.type && (
-                <span
-                  className={`text-[8px] px-1 py-0.5 rounded border ${getTypeColor(
-                    out.type,
-                  )}`}
-                  title={`Type: ${out.type}`}
-                >
-                  {out.type}
-                </span>
-              )}
-              {connectionCount > 0 && (
-                <span className="text-[9px] text-emerald-400 font-medium" title={`${connectionCount} connection(s)`}>
-                  {connectionCount}
-                </span>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    ) : null
-
   const isSwapOrQuote = blockType === 'swap' || blockType === 'getQuote'
   const amountDenomination = (inputs.amountDenomination ?? 'Token').toUpperCase()
   const amountSuffix =
@@ -512,7 +437,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                 onSuffixClick={field.name === 'amount' ? onAmountSuffixClick : undefined}
               />
             ))}
-            {renderOutputsSection()}
           </div>
         </NodeShell>
       }
@@ -963,41 +887,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
             )
           })()}
 
-          {resolvedOutputs.length > 0 && (
-            <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-800/60">
-              <span className="text-[9px] font-medium text-slate-600 uppercase tracking-wider">
-                Outputs
-              </span>
-              {resolvedOutputs.map((out) => {
-                const connectionCount = execOutCount
-                return (
-                  <div key={out.name} className="flex items-center gap-1.5 group relative">
-                    <div
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        connectionCount > 0 ? 'bg-emerald-400' : 'bg-slate-600'
-                      }`}
-                    />
-                    <span className="text-[10px] text-slate-500 flex-1">{out.label}</span>
-                    {out.type && (
-                      <span
-                        className={`text-[8px] px-1 py-0.5 rounded border ${getTypeColor(
-                          out.type,
-                        )}`}
-                        title={`Type: ${out.type}`}
-                      >
-                        {out.type}
-                      </span>
-                    )}
-                    {connectionCount > 0 && (
-                      <span className="text-[9px] text-emerald-400 font-medium" title={`${connectionCount} connection(s)`}>
-                        {connectionCount}
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
         </div>
       </NodeShell>
   )

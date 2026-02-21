@@ -772,36 +772,29 @@ function InputWithSourceSelector(props: BlockInputProps) {
       currentSourceHandle != null && availableOutputs.some((o) => o.name === currentSourceHandle)
         ? currentSourceHandle
         : (availableOutputs[0]?.name ?? '')
-    const sourceIndex = connectionInfo.sourceNodeId
-      ? availableDataSources.findIndex((s) => s.nodeId === connectionInfo.sourceNodeId) + 1
-      : 0
-    const outputLabel = (o: { name: string; label: string }) =>
-      sourceIndex ? `${sourceIndex}. ${o.label}` : o.label
     return (
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          {labelRow}
-          <SourceCirclePopover
-            open={modeOpen}
-            onOpenChange={setModeOpen}
-            onManual={setManual}
-            onSelectSource={onSelectSource}
-            availableDataSources={availableDataSources}
-          >
-            <div className="relative flex-1 min-w-0 pr-7">
-              <select
-                value={safeValue}
-                onChange={(e) => props.onSourceOutputChange?.(e.target.value)}
-                className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-2`}
-              >
-                {availableOutputs.map((o) => (
-                  <option key={o.name} value={o.name}>{outputLabel(o)}</option>
-                ))}
-              </select>
-              <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-            </div>
-          </SourceCirclePopover>
-        </div>
+        {labelRow}
+        <SourceCirclePopover
+          open={modeOpen}
+          onOpenChange={setModeOpen}
+          onManual={setManual}
+          onSelectSource={onSelectSource}
+          availableDataSources={availableDataSources}
+        >
+          <div className="relative flex-1 min-w-0">
+            <select
+              value={safeValue}
+              onChange={(e) => props.onSourceOutputChange?.(e.target.value)}
+              className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-8`}
+            >
+              {availableOutputs.map((o) => (
+                <option key={o.name} value={o.name}>{o.label}</option>
+              ))}
+            </select>
+            <ChevronDown size={10} className="absolute right-8 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+          </div>
+        </SourceCirclePopover>
       </div>
     )
   }

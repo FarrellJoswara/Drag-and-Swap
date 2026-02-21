@@ -416,6 +416,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'emerald',
+  hidden: true,
   icon: 'activity',
   inputs: [],
   outputs: getHyperliquidStreamOutputs('trades'),
@@ -431,6 +432,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'blue',
+  hidden: true,
   icon: 'users',
   inputs: [
     {
@@ -454,6 +456,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'violet',
+  hidden: true,
   icon: 'trending-up',
   inputs: [
     {
@@ -479,6 +482,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'amber',
+  hidden: true,
   icon: 'check-circle',
   inputs: [
     {
@@ -522,6 +526,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'amber',
+  hidden: true,
   icon: 'plus-circle',
   inputs: [
     {
@@ -565,6 +570,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'rose',
+  hidden: true,
   icon: 'arrow-down-up',
   inputs: [],
   outputs: getHyperliquidStreamOutputs('events'),
@@ -580,6 +586,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'rose',
+  hidden: true,
   icon: 'percent',
   inputs: [],
   outputs: getHyperliquidStreamOutputs('events'),
@@ -595,6 +602,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'blue',
+  hidden: true,
   icon: 'repeat',
   inputs: [
     {
@@ -620,6 +628,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'amber',
+  hidden: true,
   icon: 'activity',
   inputs: [
     { name: 'minSize', label: 'Min size', type: 'number', placeholder: 'e.g. 1', defaultValue: '1' },
@@ -642,6 +651,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'violet',
+  hidden: true,
   icon: 'activity',
   inputs: [
     { name: 'direction', label: 'Direction', type: 'select', options: ['above', 'below'], defaultValue: 'above' },
@@ -670,6 +680,7 @@ registerBlock({
   category: 'trigger',
   service: 'hyperliquid',
   color: 'rose',
+  hidden: true,
   icon: 'barChart',
   inputs: [
     { name: 'windowSeconds', label: 'Window (seconds)', type: 'number', placeholder: '60', defaultValue: '60' },

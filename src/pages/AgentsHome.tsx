@@ -50,12 +50,10 @@ export default function AgentsHome() {
         <div className="flex items-center gap-4">
           <Link
             to="/"
-            className="flex items-center gap-2 text-slate-300 hover:text-slate-100 transition-colors"
+            className="flex items-center gap-2.5 text-slate-300 hover:text-slate-100 transition-colors"
           >
-            <div className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
-              <img src="/logo.png" alt="Dragn Swap Logo" className="w-full h-full object-contain" />
-            </div>
-            <span className="text-xs font-semibold">Dragn Swap</span>
+            <img src="/logo-alt.png" alt="Dragn Swap Logo" className="w-12 h-12 object-contain opacity-90 hover:opacity-100 transition-opacity flex-shrink-0" />
+            <span className="text-sm font-semibold">Dragn Swap</span>
           </Link>
           <div className="h-3 w-px bg-slate-800" />
           <div className="flex items-center gap-2">
