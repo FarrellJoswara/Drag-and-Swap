@@ -101,7 +101,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     [id, setNodes],
   )
 
-  const displayConsoleValue = blockType === 'streamDisplay' ? getDisplayValue(agentId, id) : undefined
+  const displayAgentIdForValue = agentId ?? 'editor'
+  const displayConsoleValue = blockType === 'streamDisplay' ? getDisplayValue(displayAgentIdForValue, id) : undefined
   const consoleScrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (blockType === 'streamDisplay' && consoleScrollRef.current) {
@@ -193,6 +194,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   }, [edges, id, definition.inputs])
 
   // Connection info for inputs that have an incoming edge (for output dropdown)
+  // Skip trigger-only connections: triggers are for execution order, not data flow (except streamDisplay data)
   const connectionInfoByInput = useMemo(() => {
     const nodes = getNodes()
     const result: Record<string, ConnectionInfo> = {}
@@ -203,6 +205,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       if (!sourceNode) continue
       const sourceDef = getBlock(sourceNode.data?.blockType as string)
       if (!sourceDef?.outputs?.length) continue
+      if (sourceDef.category === 'trigger' && !(blockType === 'streamDisplay' && field.name === 'data')) {
+        continue // Trigger connections don't pass data; show literal input instead
+      }
       const currentSourceHandle = sourceDef.outputs.some((o) => o.name === edge.sourceHandle)
         ? (edge.sourceHandle ?? sourceDef.outputs[0].name)
         : sourceDef.outputs[0].name
@@ -214,7 +219,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       }
     }
     return result
-  }, [edges, id, definition.inputs, getNodes])
+  }, [edges, id, definition.inputs, getNodes, blockType])
 
   // Unique source block labels for all edges targeting this node ("Connected to X, Y")
   const connectedSourceLabels = useMemo(() => {
@@ -260,13 +265,11 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     const nodes = getNodes()
     const edges = getEdges()
     const model = buildConnectedModel(nodes, edges)
-    const runOptions =
-      agentId != null
-        ? {
-            onDisplayUpdate: (nodeId: string, value: string) =>
-              setDisplayValue(agentId, nodeId, value),
-          }
-        : undefined
+    const displayAgentId = agentId ?? 'editor'
+    const runOptions = {
+      onDisplayUpdate: (nodeId: string, value: string) =>
+        setDisplayValue(displayAgentId, nodeId, value),
+    }
     try {
       await runDownstreamGraph(
         model,
@@ -483,13 +486,17 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                         {options.map((o) => (
                           <label
                             key={o.name}
-                            className="nodrag flex items-center gap-1.5 cursor-pointer"
+                            className="nodrag nopan flex items-center gap-1.5 cursor-pointer select-none"
+                            onPointerDown={(e) => e.stopPropagation()}
                           >
                             <input
                               type="checkbox"
                               checked={selected.includes(o.name)}
-                              onChange={() => toggle(o.name)}
-                              className="nodrag rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500/50"
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                toggle(o.name)
+                              }}
+                              className="nodrag nopan rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500/50 cursor-pointer"
                             />
                             <span className="text-[10px] text-slate-300">{o.label}</span>
                           </label>
@@ -543,7 +550,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                     <button
                       type="button"
                       className="nodrag nopan text-[9px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors"
-                      onClick={() => agentId && clearDisplayValue(agentId, id)}
+                      onClick={() => clearDisplayValue(displayAgentIdForValue, id)}
                     >
                       Clear
                     </button>
@@ -553,7 +560,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                     className="flex-1 min-h-0 p-2 overflow-auto text-[10px] font-mono text-slate-300 break-all whitespace-pre-wrap"
                     style={{ boxShadow: 'inset 0 0 12px rgba(0,0,0,0.3)' }}
                   >
-                    {agentId == null ? (
+                    {agentId == null && (displayConsoleValue == null || displayConsoleValue === '') ? (
                       <span className="text-slate-500 italic">Save agent to see live data</span>
                     ) : displayConsoleValue == null || displayConsoleValue === '' ? (
                       <span className="text-slate-500 italic">
