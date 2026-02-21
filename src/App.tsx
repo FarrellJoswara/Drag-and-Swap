@@ -27,6 +27,7 @@ import { useAgents } from './contexts/AgentsContext'
 import { AgentIdProvider } from './contexts/AgentIdContext'
 import { useCurrentFlow } from './contexts/CurrentFlowContext'
 import { getBlock, getOutputsForBlock, minimapColor } from './lib/blockRegistry'
+import { EXEC_IN_HANDLE, EXEC_OUT_HANDLE } from './utils/executionHandles'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
 import { isValidConnection } from './utils/connectionValidation'
@@ -118,7 +119,7 @@ function modelToFlowData(model: {
   return { nodes, edges }
 }
 
-/** Assign default sourceHandle/targetHandle when missing so React Flow never sees undefined. Drops edges that can't be normalized. */
+/** All edges are execution-only: normalize to exec-out → exec-in. Drops edges that can't be normalized. */
 function normalizeEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
   const result: Edge[] = []
@@ -126,69 +127,29 @@ function normalizeEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
     const sourceNode = nodeMap.get(e.source)
     const targetNode = nodeMap.get(e.target)
     if (!sourceNode || !targetNode) continue
-    const sourceBlock = (sourceNode.data?.blockType as string) ?? sourceNode.type
     const targetBlock = (targetNode.data?.blockType as string) ?? targetNode.type
-    const defSource = getBlock(sourceBlock)
     const defTarget = getBlock(targetBlock)
-    if (!defSource || !defTarget) continue
-    let sourceHandle = e.sourceHandle && String(e.sourceHandle).trim() ? e.sourceHandle : undefined
-    let targetHandle = e.targetHandle && String(e.targetHandle).trim() ? e.targetHandle : undefined
-    if (!sourceHandle) {
-      const dataOut = defSource.outputs.find((o) => o.name === 'data')
-      const targetIsStreamDisplay = targetBlock === 'streamDisplay'
-      sourceHandle =
-        targetIsStreamDisplay && dataOut ? 'data' : (defSource.outputs[0]?.name ?? undefined)
-    }
-    if (!targetHandle) {
-      const firstConnectable = defTarget.inputs.find((i) => i.type !== 'walletAddress')
-      targetHandle = firstConnectable?.name
-    }
-    if (!sourceHandle || !targetHandle) continue
-    result.push({ ...e, sourceHandle, targetHandle })
+    if (!defTarget) continue
+    if (defTarget.category === 'trigger') continue
+    result.push({
+      ...e,
+      sourceHandle: EXEC_OUT_HANDLE,
+      targetHandle: EXEC_IN_HANDLE,
+    })
   }
   return result
 }
 
-/** Resolve effective outputs for a node (for streamDisplay, use the block connected to its data input). */
-function getEffectiveSourceOutputs(
-  sourceNode: Node,
-  sourceBlock: string,
-  edges: Edge[],
-  nodeMap: Map<string, Node>
-): { name: string; label: string; type?: string }[] {
-  let outputs = getOutputsForBlock(sourceBlock, sourceNode.data ?? {})
-  if (sourceBlock === 'streamDisplay') {
-    const dataEdge = edges.find((e) => e.target === sourceNode.id && e.targetHandle === 'data')
-    if (dataEdge) {
-      const dataSourceNode = nodeMap.get(dataEdge.source)
-      if (dataSourceNode) {
-        const dataSourceBlock = (dataSourceNode.data?.blockType as string) ?? dataSourceNode.type
-        const resolved = getOutputsForBlock(dataSourceBlock, dataSourceNode.data ?? {})
-        if (resolved.length > 0) outputs = resolved
-      }
-    }
-  }
-  return outputs
-}
-
-/** Keep only edges whose sourceHandle and targetHandle exist on the block defs and target is connectable (not walletAddress). */
+/** Keep only execution edges (exec-out → exec-in) and drop invalid targets (e.g. trigger). */
 function validateAndFilterEdges(nodes: Node[], edges: Edge[]): Edge[] {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
   return edges.filter((e) => {
-    if (!e.sourceHandle || !e.targetHandle) return false
-    const sourceNode = nodeMap.get(e.source)
+    if (e.sourceHandle !== EXEC_OUT_HANDLE || e.targetHandle !== EXEC_IN_HANDLE) return false
     const targetNode = nodeMap.get(e.target)
-    if (!sourceNode || !targetNode) return false
-    const sourceBlock = (sourceNode.data?.blockType as string) ?? sourceNode.type
+    if (!targetNode) return false
     const targetBlock = (targetNode.data?.blockType as string) ?? targetNode.type
-    const defSource = getBlock(sourceBlock)
     const defTarget = getBlock(targetBlock)
-    if (!defSource || !defTarget) return false
-    const sourceOutputs = getEffectiveSourceOutputs(sourceNode, sourceBlock, edges, nodeMap)
-    const sourceOk = sourceOutputs.some((o) => o.name === e.sourceHandle)
-    if (!sourceOk) return false
-    const targetInput = defTarget.inputs.find((i) => i.name === e.targetHandle)
-    if (!targetInput || targetInput.type === 'walletAddress') return false
+    if (!defTarget || defTarget.category === 'trigger') return false
     return true
   })
 }
@@ -210,9 +171,61 @@ function flowSignature(nodes: Node[], edges: Edge[]): string {
   return JSON.stringify({ nodes: normNodes, edges: normEdges })
 }
 
-/** Ensure node positions are valid { x, y } objects; dedupe nodes/edges by id. */
+/** Migrate old data edges to inputSources on nodes; return execution-only edges and updated nodes. */
+function migrateToExecutionFlow(nodes: Node[], rawEdges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  const inputSourcesByNode = new Map<string, Record<string, { sourceNodeId: string; outputName: string }>>()
+  const executionPairs = new Set<string>()
+
+  for (const e of rawEdges) {
+    const targetNode = nodeMap.get(e.target)
+    const sourceNode = nodeMap.get(e.source)
+    const targetBlock = targetNode ? (targetNode.data?.blockType as string) ?? targetNode.type : ''
+    const defTarget = getBlock(targetBlock)
+    const isExecutionEdge = e.targetHandle === EXEC_IN_HANDLE && e.sourceHandle === EXEC_OUT_HANDLE
+
+    if (!isExecutionEdge && defTarget && e.targetHandle && e.targetHandle !== EXEC_IN_HANDLE) {
+      const sourceBlock = sourceNode ? (sourceNode.data?.blockType as string) ?? sourceNode.type : ''
+      const sourceOutputs = getOutputsForBlock(sourceBlock, sourceNode?.data ?? {})
+      const outputName = e.sourceHandle && sourceOutputs.some((o) => o.name === e.sourceHandle) ? e.sourceHandle : sourceOutputs[0]?.name ?? e.sourceHandle ?? 'value'
+      let map = inputSourcesByNode.get(e.target)
+      if (!map) {
+        map = {}
+        inputSourcesByNode.set(e.target, map)
+      }
+      map[e.targetHandle] = { sourceNodeId: e.source, outputName }
+    }
+    if (sourceNode && targetNode && getBlock((targetNode.data?.blockType as string) ?? targetNode.type)?.category !== 'trigger') {
+      executionPairs.add(`${e.source}\t${e.target}`)
+    }
+  }
+
+  const nodesWithSources = nodes.map((n) => {
+    const sources = inputSourcesByNode.get(n.id)
+    if (!sources) return n
+    return { ...n, data: { ...n.data, inputSources: { ...((n.data?.inputSources as Record<string, { sourceNodeId: string; outputName: string }>) ?? {}), ...sources } } }
+  })
+
+  const edges: Edge[] = []
+  let id = 0
+  for (const pair of executionPairs) {
+    const [source, target] = pair.split('\t')
+    if (!source || !target) continue
+    edges.push({
+      id: `exec-${id++}`,
+      source,
+      target,
+      sourceHandle: EXEC_OUT_HANDLE,
+      targetHandle: EXEC_IN_HANDLE,
+      animated: true,
+      style: { stroke: '#6366f1', strokeWidth: 2 },
+    })
+  }
+  return { nodes: nodesWithSources, edges: validateAndFilterEdges(nodesWithSources, edges) }
+}
+
+/** Ensure node positions are valid { x, y } objects; dedupe nodes/edges by id; migrate old data edges to execution + inputSources. */
 function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes: Node[]; edges: Edge[] } {
-  // Dedupe nodes by id (keep first)
   const seenNodeIds = new Set<string>()
   const nodes: Node[] = flowData.nodes
     .filter((n) => {
@@ -227,7 +240,6 @@ function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes:
         y: typeof n.position?.y === 'number' ? n.position.y : 0,
       },
     }))
-  // Edges: only where source/target in deduped set, dedupe by id, preserve sourceHandle/targetHandle
   const seenEdgeIds = new Set<string>()
   const rawEdges = flowData.edges
     .filter((e) => {
@@ -242,9 +254,8 @@ function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes:
       animated: e.animated ?? true,
       style: e.style ?? { stroke: '#6366f1', strokeWidth: 2 },
     }))
-  const normalized = normalizeEdgeHandles(nodes, rawEdges)
-  const edges = validateAndFilterEdges(nodes, normalized)
-  return { nodes, edges }
+  const { nodes: migratedNodes, edges: execEdges } = migrateToExecutionFlow(nodes, rawEdges)
+  return { nodes: migratedNodes, edges: execEdges }
 }
 
 export default function App() {
@@ -414,11 +425,15 @@ export default function App() {
         }
       }
 
-      // Create the edge
       takeSnapshot()
+      const normalizedConnection = {
+        ...connection,
+        sourceHandle: EXEC_OUT_HANDLE,
+        targetHandle: EXEC_IN_HANDLE,
+      }
       setEdges((eds) =>
         addEdge(
-          { ...connection, animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
+          { ...normalizedConnection, animated: true, style: { stroke: '#6366f1', strokeWidth: 2 } },
           eds,
         ),
       )

@@ -1,57 +1,14 @@
 import { Link } from 'react-router-dom'
-import { Braces, ChevronDown, ChevronRight, Clock, Eye, Filter, Info, LayoutGrid, Plus, Repeat2, Search, Star, Trash2, Zap } from 'lucide-react'
-import { useState, useMemo, useCallback, useEffect, type DragEvent } from 'react'
+import { Braces, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
+import { useState, useMemo, type DragEvent } from 'react'
 import {
   getBlocksByCategory,
-  getBlock,
   getBlockIcon,
   sidebarColorClasses,
   type BlockDefinition,
   type BlockCategory,
 } from '../../lib/blockRegistry'
 import { useVariables, type Variable } from '../../lib/VariableContext'
-
-const RECENT_KEY = 'drag-and-swap-recent-blocks'
-const FAVORITES_KEY = 'drag-and-swap-favorite-blocks'
-const RECENT_MAX = 6
-
-function loadRecent(): string[] {
-  try {
-    const raw = sessionStorage.getItem(RECENT_KEY)
-    if (!raw) return []
-    const a = JSON.parse(raw) as string[]
-    return Array.isArray(a) ? a.slice(0, RECENT_MAX) : []
-  } catch {
-    return []
-  }
-}
-
-function saveRecent(types: string[]) {
-  try {
-    sessionStorage.setItem(RECENT_KEY, JSON.stringify(types.slice(0, RECENT_MAX)))
-  } catch {
-    /* ignore */
-  }
-}
-
-function loadFavorites(): string[] {
-  try {
-    const raw = localStorage.getItem(FAVORITES_KEY)
-    if (!raw) return []
-    const a = JSON.parse(raw) as string[]
-    return Array.isArray(a) ? a : []
-  } catch {
-    return []
-  }
-}
-
-function saveFavorites(fav: string[]) {
-  try {
-    localStorage.setItem(FAVORITES_KEY, JSON.stringify(fav))
-  } catch {
-    /* ignore */
-  }
-}
 
 /** Order blocks: general (no service) first, then the rest. */
 function orderBlocks(blocks: BlockDefinition[]) {
@@ -60,17 +17,7 @@ function orderBlocks(blocks: BlockDefinition[]) {
   return [...general, ...rest]
 }
 
-function DraggableBlock({
-  block,
-  onDragStartRecord,
-  isFavorite,
-  onToggleFavorite,
-}: {
-  block: BlockDefinition
-  onDragStartRecord?: () => void
-  isFavorite?: boolean
-  onToggleFavorite?: (e: React.MouseEvent) => void
-}) {
+function DraggableBlock({ block }: { block: BlockDefinition }) {
   const colors = sidebarColorClasses[block.color]
   const Icon = getBlockIcon(block.icon)
   const [showTooltip, setShowTooltip] = useState(false)
@@ -78,7 +25,6 @@ function DraggableBlock({
   const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
     e.dataTransfer.setData('application/reactflow', block.type)
     e.dataTransfer.effectAllowed = 'move'
-    onDragStartRecord?.()
   }
 
   return (
@@ -105,16 +51,6 @@ function DraggableBlock({
           <p className="text-[10px] text-slate-600 group-hover/block:text-slate-500 transition-colors line-clamp-2">{block.description}</p>
         </div>
         <div className="flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover/block:opacity-100 transition-opacity">
-          {onToggleFavorite && (
-            <button
-              type="button"
-              onClick={onToggleFavorite}
-              className={`p-0.5 rounded transition-colors ${isFavorite ? 'text-amber-400' : 'text-slate-600 hover:text-amber-500'}`}
-              title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              <Star size={10} fill={isFavorite ? 'currentColor' : 'none'} />
-            </button>
-          )}
           <Info size={10} className="text-slate-500" />
         </div>
       </div>
@@ -144,18 +80,12 @@ function CollapsibleCategorySection({
   category,
   query,
   defaultOpen = true,
-  onDragStartRecord,
-  favorites,
-  onToggleFavorite,
 }: {
   title: string
   icon: React.ReactNode
   category: BlockCategory
   query: string
   defaultOpen?: boolean
-  onDragStartRecord?: (blockType: string) => void
-  favorites?: Set<string>
-  onToggleFavorite?: (blockType: string) => void
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const blocks = useMemo(() => {
@@ -183,13 +113,7 @@ function CollapsibleCategorySection({
       {open && (
         <div className="flex flex-col gap-1.5">
           {blocks.map((block) => (
-            <DraggableBlock
-              key={block.type}
-              block={block}
-              onDragStartRecord={onDragStartRecord ? () => onDragStartRecord(block.type) : undefined}
-              isFavorite={favorites?.has(block.type)}
-              onToggleFavorite={onToggleFavorite ? (e) => { e.stopPropagation(); onToggleFavorite(block.type) } : undefined}
-            />
+            <DraggableBlock key={block.type} block={block} />
           ))}
         </div>
       )}
@@ -264,30 +188,7 @@ function filterVariables(variables: Variable[], q: string) {
 
 export default function Sidebar() {
   const [query, setQuery] = useState('')
-  const [recent, setRecent] = useState<string[]>(loadRecent)
-  const [favorites, setFavorites] = useState<string[]>(loadFavorites)
   const { variables, addVariable, updateVariable, removeVariable } = useVariables()
-
-  const favoritesSet = useMemo(() => new Set(favorites), [favorites])
-
-  useEffect(() => {
-    saveFavorites(favorites)
-  }, [favorites])
-
-  const recordRecent = useCallback((blockType: string) => {
-    setRecent((prev) => {
-      const next = [blockType, ...prev.filter((t) => t !== blockType)].slice(0, RECENT_MAX)
-      saveRecent(next)
-      return next
-    })
-  }, [])
-
-  const toggleFavorite = useCallback((blockType: string) => {
-    setFavorites((prev) => {
-      const next = prev.includes(blockType) ? prev.filter((t) => t !== blockType) : [...prev, blockType]
-      return next
-    })
-  }, [])
 
   const filteredVariables = useMemo(() => filterVariables(variables, query), [variables, query])
 
@@ -304,14 +205,6 @@ export default function Sidebar() {
     return !hasTriggers && !hasStreamTriggers && !hasActions && !hasFilters && !hasDisplay
   }, [query])
   const noVariables = filteredVariables.length === 0 && variables.length === 0
-
-  const recentBlocks = useMemo(() => {
-    return recent.map((type) => getBlock(type)).filter(Boolean) as BlockDefinition[]
-  }, [recent])
-
-  const favoriteBlocks = useMemo(() => {
-    return favorites.map((type) => getBlock(type)).filter(Boolean) as BlockDefinition[]
-  }, [favorites])
 
   return (
     <aside className="w-[220px] flex-shrink-0 h-full bg-[#0a0a0f] border-r border-slate-800/60 flex flex-col">
@@ -351,95 +244,35 @@ export default function Sidebar() {
 
       {/* Scrollable content */}
       <div className="flex-1 px-3 pb-4 flex flex-col gap-5 overflow-y-auto">
-        {/* Favorites */}
-        {favoriteBlocks.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-2 px-1">
-              <Star size={11} className="text-amber-400" />
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Favorites</span>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {favoriteBlocks
-                .filter((b) => !query || b.label.toLowerCase().includes(query.toLowerCase()) || b.description.toLowerCase().includes(query.toLowerCase()))
-                .map((block) => (
-                  <DraggableBlock
-                    key={block.type}
-                    block={block}
-                    onDragStartRecord={() => recordRecent(block.type)}
-                    isFavorite
-                    onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(block.type) }}
-                  />
-                ))}
-            </div>
-          </div>
-        )}
-        {/* Recent */}
-        {recentBlocks.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-2 px-1">
-              <Clock size={11} className="text-slate-500" />
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Recent</span>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {recentBlocks
-                .filter((b) => !query || b.label.toLowerCase().includes(query.toLowerCase()) || b.description.toLowerCase().includes(query.toLowerCase()))
-                .map((block) => (
-                  <DraggableBlock
-                    key={block.type}
-                    block={block}
-                    onDragStartRecord={() => recordRecent(block.type)}
-                    isFavorite={favoritesSet.has(block.type)}
-                    onToggleFavorite={(e) => { e.stopPropagation(); toggleFavorite(block.type) }}
-                  />
-                ))}
-            </div>
-          </div>
-        )}
-        {/* Block sections */}
         <CollapsibleCategorySection
           title="Triggers"
           icon={<Zap size={11} />}
           category="trigger"
           query={query}
-          onDragStartRecord={recordRecent}
-          favorites={favoritesSet}
-          onToggleFavorite={toggleFavorite}
         />
         <CollapsibleCategorySection
           title="Stream Triggers"
           icon={<Zap size={11} />}
           category="streamTriggers"
           query={query}
-          onDragStartRecord={recordRecent}
-          favorites={favoritesSet}
-          onToggleFavorite={toggleFavorite}
         />
         <CollapsibleCategorySection
           title="Actions"
           icon={<Repeat2 size={11} />}
           category="action"
           query={query}
-          onDragStartRecord={recordRecent}
-          favorites={favoritesSet}
-          onToggleFavorite={toggleFavorite}
         />
         <CollapsibleCategorySection
           title="Filters"
           icon={<Filter size={11} />}
           category="filter"
           query={query}
-          onDragStartRecord={recordRecent}
-          favorites={favoritesSet}
-          onToggleFavorite={toggleFavorite}
         />
         <CollapsibleCategorySection
           title="Display"
           icon={<Eye size={11} />}
           category="display"
           query={query}
-          onDragStartRecord={recordRecent}
-          favorites={favoritesSet}
-          onToggleFavorite={toggleFavorite}
         />
 
         {noBlocks && noVariables && query && (

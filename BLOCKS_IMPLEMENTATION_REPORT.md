@@ -108,7 +108,7 @@ All planned blocks and block-system features were implemented. The app builds su
 
 - **RunContext:** Extended with `nodeId` and `agentId`; set in `runDownstreamGraph` and passed into every block `run()`.
 - **RunOptions:** Added `agentId`; `subscribeToAgent` builds `runOptions` with `agentId` so deployed agents get correct rate-limit keys.
-- **Conditional branching:** Only downstream nodes connected to an output handle whose value is non-empty are scheduled; blocks like `generalFilter` (all outputs set) behave as before.
+- **Conditional branching:** Only downstream nodes connected to an output handle whose value is non-empty are scheduled; blocks like `generalComparator` (all outputs set) behave as before.
 
 ---
 

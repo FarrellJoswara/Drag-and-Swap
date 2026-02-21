@@ -84,7 +84,7 @@ import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
 import {
   // webhook,
   timeLoop,
-  generalFilter,
+  generalComparator,
   delay,
   // numericRangeFilter,
   // stringMatchFilter,
@@ -581,11 +581,11 @@ registerBlock({
   },
 })
 
-// ─── General Filter ────────────────────────────────────────
+// ─── General Comparator ────────────────────────────────────────
 
 registerBlock({
-  type: 'generalFilter',
-  label: 'General Filter',
+  type: 'generalComparator',
+  label: 'General Comparator',
   description: 'Compare two values: connect blocks to top/bottom or type literals. Empty field shows connection handle; filled field uses that value and hides the handle.',
   category: 'filter',
   color: 'yellow',
@@ -653,7 +653,7 @@ registerBlock({
   outputs: [
     { name: 'passed', label: 'Passed', type: 'boolean' },
   ],
-  run: async (inputs) => generalFilter(inputs),
+  run: async (inputs) => generalComparator(inputs),
 })
 
 // ─── Output Display Block (Visualization / Debug) ──────────

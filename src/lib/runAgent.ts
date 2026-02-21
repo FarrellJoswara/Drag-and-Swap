@@ -181,27 +181,30 @@ export async function runFromNode(
   await runDownstreamGraph(model, nodeId, targetResult, context, options)
 }
 
-/** Resolve inputs for a node from outputs map and node data. */
+type InputSourceBinding = { sourceNodeId: string; outputName: string }
+
+/** Resolve inputs for a node from outputs map and node data. Uses inputSources (data bindings) when set. */
 function resolveInputs(
   node: ConnectedNode,
   def: BlockDefinition,
   outputs: Map<string, Record<string, string>>,
 ): Record<string, string> {
+  const inputSources = (node.data.inputSources as Record<string, InputSourceBinding> | undefined) ?? {}
   const inputs: Record<string, string> = {}
   for (const field of def.inputs) {
     const storedVal = (node.data[field.name] != null ? String(node.data[field.name]) : field.defaultValue ?? '') as string
     let val = storedVal
 
-    const conn = node.inputs.find((c) => c.targetHandle === field.name)
-    if (conn) {
-      const srcOuts = outputs.get(conn.sourceNodeId)
+    const binding = inputSources[field.name]
+    if (binding) {
+      const srcOuts = outputs.get(binding.sourceNodeId)
       if (srcOuts) {
         const useNormalizedForDisplay =
           def.type === 'streamDisplay' &&
           field.name === 'data' &&
           srcOuts != null &&
           typeof srcOuts === 'object'
-        const outName = useNormalizedForDisplay ? 'data' : (conn.sourceHandle ?? Object.keys(srcOuts)[0])
+        const outName = useNormalizedForDisplay ? 'data' : binding.outputName
         const connectedVal = useNormalizedForDisplay ? JSON.stringify(srcOuts) : (srcOuts[outName] ?? val)
         if (storedVal.trim() !== '') {
           val = storedVal
@@ -248,6 +251,13 @@ export async function runDownstreamGraph(
   const canRun = (nodeId: string): boolean => {
     const n = nodeMap.get(nodeId)
     if (!n) return false
+    const def = getBlock((n.data?.blockType as string) ?? n.type)
+    if (def?.type === 'streamDisplay') {
+      const dataBinding = (n.data?.inputSources as Record<string, InputSourceBinding> | undefined)?.['data']
+      if (dataBinding?.sourceNodeId) {
+        return processed.has(dataBinding.sourceNodeId)
+      }
+    }
     return n.inputs.every((c) => processed.has(c.sourceNodeId))
   }
 
@@ -273,24 +283,22 @@ export async function runDownstreamGraph(
     const def = getBlock((node.data?.blockType as string) ?? node.type)
     if (!def) continue
 
+    const nodeInputSources = (node.data.inputSources as Record<string, InputSourceBinding> | undefined) ?? {}
     const inputs: Record<string, string> = {}
     for (const field of def.inputs) {
       const storedVal = (node.data[field.name] != null ? String(node.data[field.name]) : field.defaultValue ?? '') as string
       let val = storedVal
 
-      const conn = node.inputs.find((c) => c.targetHandle === field.name)
-      if (conn) {
-        const srcOuts = outputs.get(conn.sourceNodeId)
+      const binding = nodeInputSources[field.name]
+      if (binding) {
+        const srcOuts = outputs.get(binding.sourceNodeId)
         if (srcOuts) {
-          // Stream Display "data" input: pass full normalized outputs (same keys as "Fields to Show") so selected fields match and display correctly
           const useNormalizedForDisplay =
             def.type === 'streamDisplay' &&
             field.name === 'data' &&
             srcOuts != null &&
             typeof srcOuts === 'object'
-          const outName = useNormalizedForDisplay
-            ? 'data'
-            : (conn.sourceHandle ?? Object.keys(srcOuts)[0])
+          const outName = useNormalizedForDisplay ? 'data' : binding.outputName
           const connectedVal = useNormalizedForDisplay
             ? JSON.stringify(srcOuts)
             : (srcOuts[outName] ?? val)

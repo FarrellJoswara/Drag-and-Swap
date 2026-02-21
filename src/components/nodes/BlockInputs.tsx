@@ -1,5 +1,6 @@
-import { Braces, ChevronDown, Wallet, Plus, X } from 'lucide-react'
-import { useCallback, useState, type DragEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { Braces, ChevronDown, Wallet, Plus, X, Circle } from 'lucide-react'
+import { useCallback, useState, useRef, useEffect, type DragEvent } from 'react'
 import {
   DEFAULT_TOKENS,
   type InputField,
@@ -102,6 +103,12 @@ export type ConnectionInfo = {
 
 // ── Input type renderers ──────────────────────────────────
 
+export type DataSourceOption = {
+  nodeId: string
+  nodeLabel: string
+  outputs: Array<{ name: string; label: string }>
+}
+
 export interface BlockInputProps {
   field: InputField
   value?: string
@@ -109,33 +116,43 @@ export interface BlockInputProps {
   color: BlockColor
   connectionInfo?: ConnectionInfo
   onSourceOutputChange?: (outputName: string) => void
+  /** Execution-upstream nodes for "From upstream" source picker */
+  availableDataSources?: DataSourceOption[]
+  /** Set or clear data binding for this input (Manual vs From upstream) */
+  onInputSourceChange?: (fieldName: string, binding: { sourceNodeId: string; outputName: string } | null) => void
   /** When true, do not show "From X:" above the dropdown (e.g. when "Connected to" is at node top) */
   hideSourceLabel?: boolean
   /** Optional suffix shown to the right of the input (e.g. "ETH", "USD") */
   suffix?: string
   /** When provided, suffix becomes clickable to toggle (e.g. Token ↔ USD) */
   onSuffixClick?: () => void
+  /** When true, render only the input control (no label) for use inside source selector row */
+  hideLabel?: boolean
 }
 
-function TextInput({ field, value = '', onChange, color }: BlockInputProps) {
+function TextInput({ field, value = '', onChange, color, hideLabel }: BlockInputProps) {
   const focus = focusColorClass[color]
+  const input = (
+    <DropZone value={value} onChange={onChange}>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={field.placeholder}
+        className={`${baseInput(focus)} px-2.5 py-1.5`}
+      />
+    </DropZone>
+  )
+  if (hideLabel) return <div className="flex flex-col gap-1">{input}</div>
   return (
     <div className="flex flex-col gap-1">
       <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
-      <DropZone value={value} onChange={onChange}>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={field.placeholder}
-          className={`${baseInput(focus)} px-2.5 py-1.5`}
-        />
-      </DropZone>
+      {input}
     </div>
   )
 }
 
-function NumberInput({ field, value = '', onChange, color, suffix, onSuffixClick }: BlockInputProps) {
+function NumberInput({ field, value = '', onChange, color, suffix, onSuffixClick, hideLabel }: BlockInputProps) {
   const focus = focusColorClass[color]
   const suffixEl = suffix ? (
     onSuffixClick ? (
@@ -152,13 +169,11 @@ function NumberInput({ field, value = '', onChange, color, suffix, onSuffixClick
       </span>
     )
   ) : null
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
-      <div className="flex items-center gap-1.5">
-        <div className="flex-1 min-w-0">
-          <DropZone value={value} onChange={onChange}>
-            <input
+  const content = (
+    <div className="flex items-center gap-1.5">
+      <div className="flex-1 min-w-0">
+        <DropZone value={value} onChange={onChange}>
+          <input
             type="text"
             inputMode="decimal"
             value={value}
@@ -169,10 +184,16 @@ function NumberInput({ field, value = '', onChange, color, suffix, onSuffixClick
             step={field.step}
             className={`${baseInput(focus)} px-2.5 py-1.5 w-full`}
           />
-          </DropZone>
-        </div>
-        {suffixEl}
+        </DropZone>
       </div>
+      {suffixEl}
+    </div>
+  )
+  if (hideLabel) return <div className="flex flex-col gap-1">{content}</div>
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+      {content}
     </div>
   )
 }
@@ -241,20 +262,24 @@ function ToggleInput({ field, value = '', onChange, color }: BlockInputProps) {
   )
 }
 
-function TextareaInput({ field, value = '', onChange, color }: BlockInputProps) {
+function TextareaInput({ field, value = '', onChange, color, hideLabel }: BlockInputProps) {
   const focus = focusColorClass[color]
+  const input = (
+    <DropZone value={value} onChange={onChange}>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={field.placeholder}
+        rows={field.rows ?? 3}
+        className={`${baseInput(focus)} px-2.5 py-1.5 resize-none`}
+      />
+    </DropZone>
+  )
+  if (hideLabel) return <div className="flex flex-col gap-1">{input}</div>
   return (
     <div className="flex flex-col gap-1">
       <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
-      <DropZone value={value} onChange={onChange}>
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={field.placeholder}
-          rows={field.rows ?? 3}
-          className={`${baseInput(focus)} px-2.5 py-1.5 resize-none`}
-        />
-      </DropZone>
+      {input}
     </div>
   )
 }
@@ -605,8 +630,261 @@ const renderers: Record<string, React.FC<BlockInputProps>> = {
 
 const CONNECTED_TYPES_WITH_LITERAL = ['text', 'textarea', 'number']
 
+function isConnectable(field: InputField): boolean {
+  if (field.type === 'walletAddress') return false
+  return !!(field.allowVariable || (field.accepts && field.accepts.length > 0))
+}
+
+const SOURCE_POPOVER_Z = 2147483647
+
+function SourceCirclePopover({
+  open,
+  onOpenChange,
+  onManual,
+  onSelectSource,
+  availableDataSources = [],
+  children,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onManual: () => void
+  /** When user picks a connected source: (nodeId, outputName) — use first output if single. */
+  onSelectSource?: (nodeId: string, outputName: string) => void
+  availableDataSources?: DataSourceOption[]
+  children: React.ReactNode
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
+
+  useEffect(() => {
+    if (!open || !buttonRef.current) return
+    const update = () => {
+      if (buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect()
+        setMenuPosition({
+          top: rect.bottom + 4,
+          left: Math.max(4, rect.right - 200),
+        })
+      }
+    }
+    update()
+    window.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [open])
+
+  const menuContent = open && (
+    <>
+      <div
+        className="fixed inset-0"
+        style={{ zIndex: SOURCE_POPOVER_Z - 1 }}
+        onClick={() => onOpenChange(false)}
+        aria-hidden
+      />
+      <div
+        className="fixed min-w-[200px] max-w-[280px] py-1 rounded-md border border-slate-600 bg-slate-900 shadow-2xl"
+        style={{
+          zIndex: SOURCE_POPOVER_Z,
+          top: menuPosition.top,
+          left: menuPosition.left,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => { onManual(); onOpenChange(false) }}
+          className="nodrag w-full text-left px-2.5 py-1.5 text-[11px] text-slate-300 hover:bg-slate-700"
+        >
+          Manual
+        </button>
+        {availableDataSources.length > 0 &&
+          availableDataSources.map((src, i) => {
+            const firstOutput = src.outputs[0]?.name ?? 'value'
+            return (
+              <button
+                key={src.nodeId}
+                type="button"
+                onClick={() => {
+                  onSelectSource?.(src.nodeId, firstOutput)
+                  onOpenChange(false)
+                }}
+                className="nodrag w-full text-left px-2.5 py-1.5 text-[11px] text-blue-400 hover:bg-slate-800 font-mono truncate"
+                title={src.nodeId}
+              >
+                {i + 1}. {src.nodeLabel} <span className="text-slate-500">({src.nodeId})</span>
+              </button>
+            )
+          })}
+      </div>
+    </>
+  )
+
+  return (
+    <div className="relative flex items-center min-w-0 flex-1">
+      {children}
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+        <div className="pointer-events-auto relative" style={{ zIndex: SOURCE_POPOVER_Z }}>
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={() => onOpenChange(!open)}
+            className="nodrag flex items-center justify-center w-5 h-5 rounded-full border border-slate-600 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 transition-colors"
+            title="Input source"
+          >
+            <Circle size={10} fill="currentColor" />
+          </button>
+          {typeof document !== 'undefined' && createPortal(menuContent, document.body)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InputWithSourceSelector(props: BlockInputProps) {
+  const { field, availableDataSources = [], onInputSourceChange, connectionInfo } = props
+  const hasBinding = !!connectionInfo?.sourceNodeId
+  const mode: 'manual' | 'upstream' = hasBinding ? 'upstream' : 'manual'
+  const [modeOpen, setModeOpen] = useState(false)
+  const focus = focusColorClass[props.color]
+  const setManual = useCallback(() => {
+    onInputSourceChange?.(field.name, null)
+  }, [field.name, onInputSourceChange])
+  const onSelectSource = useCallback(
+    (nodeId: string, outputName: string) => {
+      onInputSourceChange?.(field.name, { sourceNodeId: nodeId, outputName })
+    },
+    [field.name, onInputSourceChange],
+  )
+  const Renderer = renderers[field.type] ?? TextInput
+
+  const showCircle = availableDataSources.length > 0 || hasBinding
+  const labelRow = (
+    <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider shrink-0">
+      {field.label}
+    </label>
+  )
+
+  if (mode === 'upstream' && connectionInfo && props.onSourceOutputChange) {
+    const { availableOutputs, sourceBlockLabel, currentSourceHandle } = connectionInfo
+    const safeValue =
+      currentSourceHandle != null && availableOutputs.some((o) => o.name === currentSourceHandle)
+        ? currentSourceHandle
+        : (availableOutputs[0]?.name ?? '')
+    const sourceIndex = connectionInfo.sourceNodeId
+      ? availableDataSources.findIndex((s) => s.nodeId === connectionInfo.sourceNodeId) + 1
+      : 0
+    const outputLabel = (o: { name: string; label: string }) =>
+      sourceIndex ? `${sourceIndex}. ${o.label}` : o.label
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          {labelRow}
+          <SourceCirclePopover
+            open={modeOpen}
+            onOpenChange={setModeOpen}
+            onManual={setManual}
+            onSelectSource={onSelectSource}
+            availableDataSources={availableDataSources}
+          >
+            <div className="relative flex-1 min-w-0 pr-7">
+              <select
+                value={safeValue}
+                onChange={(e) => props.onSourceOutputChange?.(e.target.value)}
+                className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-2`}
+              >
+                {availableOutputs.map((o) => (
+                  <option key={o.name} value={o.name}>{outputLabel(o)}</option>
+                ))}
+              </select>
+              <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+            </div>
+          </SourceCirclePopover>
+        </div>
+      </div>
+    )
+  }
+
+  if (mode === 'manual' && showCircle) {
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          {labelRow}
+          <SourceCirclePopover
+            open={modeOpen}
+            onOpenChange={setModeOpen}
+            onManual={setManual}
+            onSelectSource={onSelectSource}
+            availableDataSources={availableDataSources}
+          >
+            <div className="flex-1 min-w-0 pr-7">
+              <Renderer {...props} hideLabel />
+            </div>
+          </SourceCirclePopover>
+        </div>
+      </div>
+    )
+  }
+
+  if (mode === 'manual') return <Renderer {...props} />
+
+  if (mode === 'upstream' && availableDataSources.length > 0 && !connectionInfo) {
+    const options: { value: string; nodeId: string; outputName: string; label: string }[] = []
+    availableDataSources.forEach((src, i) => {
+      const num = i + 1
+      for (const out of src.outputs) {
+        options.push({
+          value: `${src.nodeId}:${out.name}`,
+          nodeId: src.nodeId,
+          outputName: out.name,
+          label: `${num}. ${src.nodeLabel} → ${out.label}`,
+        })
+      }
+    })
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          {labelRow}
+          <SourceCirclePopover
+            open={modeOpen}
+            onOpenChange={setModeOpen}
+            onManual={setManual}
+            onSelectSource={onSelectSource}
+            availableDataSources={availableDataSources}
+          >
+            <div className="relative flex-1 min-w-0 pr-7">
+              <select
+                value=""
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (!v) return
+                  const opt = options.find((o) => o.value === v)
+                  if (opt) onInputSourceChange?.(field.name, { sourceNodeId: opt.nodeId, outputName: opt.outputName })
+                  e.target.value = ''
+                }}
+                className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-2`}
+              >
+                <option value="">Select source…</option>
+                {options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+            </div>
+          </SourceCirclePopover>
+        </div>
+      </div>
+    )
+  }
+
+  return <Renderer {...props} />
+}
+
 export default function BlockInput(props: BlockInputProps) {
-  // Edge-based connectionInfo with dropdown to change source handle
+  if (isConnectable(props.field) && props.onInputSourceChange && ((props.availableDataSources?.length ?? 0) > 0 || props.connectionInfo?.sourceNodeId)) {
+    return <InputWithSourceSelector {...props} />
+  }
   if (
     props.connectionInfo != null &&
     props.connectionInfo.edgeId != null &&

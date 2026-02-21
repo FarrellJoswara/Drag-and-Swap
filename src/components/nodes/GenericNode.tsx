@@ -12,6 +12,7 @@ import NodeShell from '../ui/NodeShell'
 import ResizablePanel from '../ui/ResizablePanel'
 import SideNode, { SIDE_NODE_DEFAULT_WIDTH } from './node-extension/SideNode'
 import { buildConnectedModel } from '../../utils/buildConnectedModel'
+import { EXEC_IN_HANDLE, EXEC_OUT_HANDLE } from '../../utils/executionHandles'
 import { runFromNode } from '../../lib/runAgent'
 import { useToast } from '../ui/Toast'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
@@ -41,7 +42,7 @@ function getTypeColor(type?: string): string {
 export default function GenericNode({ id, data, selected }: NodeProps) {
   const blockType = data.blockType as string
   const definition = getBlock(blockType)
-  const { setNodes, getNodes, getEdges, setEdges } = useReactFlow()
+  const { setNodes, getNodes, getEdges } = useReactFlow()
   const { toast } = useToast()
   const walletAddress = useWalletAddress()
   const sendTransaction = useSendTransaction()
@@ -127,13 +128,14 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const edges = useEdges()
 
   // Resolved outputs (dynamic per stream type / settings); fallback to definition.outputs
-  // For Output Display: only show outputs when data input is connected (source block's outputs); otherwise show none
+  // For streamDisplay: use inputSources.data when set (execution-upstream data binding), else no outputs
   const resolvedOutputs = useMemo(() => {
     if (blockType === 'streamDisplay') {
-      const dataEdge = edges.find((e) => e.target === id && e.targetHandle === 'data')
-      if (dataEdge) {
+      const inputSources = (data.inputSources as Record<string, { sourceNodeId: string; outputName: string }> | undefined) ?? {}
+      const dataSource = inputSources['data']
+      if (dataSource) {
         const nodes = getNodes()
-        const sourceNode = nodes.find((n) => n.id === dataEdge.source)
+        const sourceNode = nodes.find((n) => n.id === dataSource.sourceNodeId)
         if (sourceNode) {
           const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
           const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
@@ -143,119 +145,133 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       return []
     }
     return getOutputsForBlock(blockType, data)
-  }, [blockType, data, edges, id, getNodes])
+  }, [blockType, data, id, getNodes])
 
-  // Count connections for each output: only the output handle that actually has an edge shows green
+  // Count execution edges from this node (single exec-out handle)
   const outputConnections = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const out of resolvedOutputs) counts[out.name] = 0
+    const count = edges.filter((e) => e.source === id && (e.sourceHandle === EXEC_OUT_HANDLE || e.sourceHandle == null)).length
+    return { [EXEC_OUT_HANDLE]: count } as Record<string, number>
+  }, [edges, id])
+
+  // Execution upstream: nodes that feed into this node via execution edges (for data source picker)
+  const executionUpstreamNodeIds = useMemo(() => {
+    const seen = new Set<string>()
+    const stack: string[] = []
     for (const e of edges) {
-      if (e.source !== id) continue
-      const sourceHandle = e.sourceHandle ?? null
-      if (sourceHandle == null) continue
-      if (counts[sourceHandle] != null) counts[sourceHandle] += 1
+      if (e.target === id && (e.targetHandle === EXEC_IN_HANDLE || e.targetHandle == null)) {
+        stack.push(e.source)
+      }
     }
-    return counts
-  }, [edges, id, resolvedOutputs])
-
-  // Check which inputs are connected
-  const inputConnections = useMemo(() => {
-    const connected: Record<string, boolean> = {}
-    for (const input of definition.inputs) {
-      connected[input.name] = edges.some(
-        (e) => e.target === id && e.targetHandle === input.name,
-      )
+    while (stack.length > 0) {
+      const nid = stack.pop()!
+      if (seen.has(nid)) continue
+      seen.add(nid)
+      for (const e of edges) {
+        if (e.target === nid && (e.targetHandle === EXEC_IN_HANDLE || e.targetHandle == null)) {
+          stack.push(e.source)
+        }
+      }
     }
-    return connected
-  }, [edges, id, definition.inputs])
+    return Array.from(seen)
+  }, [edges, id])
 
-  // Connection info for inputs that have an incoming edge (for output dropdown)
-  // Plus synthetic connectionInfo for inputs with sourceOutputsFrom (no edge; "From source" from another input's source)
-  const connectionInfoByInput = useMemo(() => {
+  // Available data sources: upstream nodes with their outputs (for "From upstream" dropdown)
+  const availableDataSources = useMemo(() => {
     const nodes = getNodes()
+    return executionUpstreamNodeIds.map((nodeId) => {
+      const node = nodes.find((n) => n.id === nodeId)
+      if (!node) return null
+      const blockType = (node.data?.blockType as string) ?? node.type
+      const outputs = getOutputsForBlock(blockType, node.data ?? {})
+      const def = getBlock(blockType)
+      return { nodeId, nodeLabel: def?.label ?? blockType, outputs }
+    }).filter(Boolean) as Array<{ nodeId: string; nodeLabel: string; outputs: Array<{ name: string; label: string }> }>
+  }, [executionUpstreamNodeIds, getNodes])
+
+  // Connection info per input: from inputSources (data binding) + availableDataSources for dropdown
+  const connectionInfoByInput = useMemo(() => {
+    const inputSources = (data.inputSources as Record<string, { sourceNodeId: string; outputName: string }> | undefined) ?? {}
     const result: Record<string, ConnectionInfo> = {}
     for (const field of definition.inputs) {
-      const edge = edges.find((e) => e.target === id && e.targetHandle === field.name)
-      if (edge) {
-        const sourceNode = nodes.find((n) => n.id === edge.source)
-        if (!sourceNode) continue
-        const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
-        const sourceDef = getBlock(sourceBlockType)
-        if (!sourceDef) continue
-        const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
-        if (!sourceOutputs.length) continue
-        const currentSourceHandle = sourceOutputs.some((o) => o.name === edge.sourceHandle)
-          ? (edge.sourceHandle ?? sourceOutputs[0].name)
-          : sourceOutputs[0].name
-        result[field.name] = {
-          edgeId: edge.id,
-          sourceNodeId: sourceNode.id,
-          sourceBlockLabel: sourceDef.label,
-          availableOutputs: sourceOutputs.map((o) => ({ name: o.name, label: o.label })),
-          currentSourceHandle,
-        }
-        continue
-      }
-      // Synthetic: no edge on this input but field has sourceOutputsFrom → use source from the referenced input
-      const fromInputName = field.sourceOutputsFrom
-      if (!fromInputName) continue
-      const fromEdge = edges.find((e) => e.target === id && e.targetHandle === fromInputName)
-      if (!fromEdge) continue
-      const sourceNode = nodes.find((n) => n.id === fromEdge.source)
-      if (!sourceNode) continue
-      const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
-      const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
-      if (!sourceOutputs.length) continue
-      const sourceDef = getBlock(sourceBlockType)
+      const binding = inputSources[field.name]
+      if (!binding) continue
+      const source = availableDataSources.find((s) => s.nodeId === binding.sourceNodeId)
+      if (!source) continue
+      const currentSourceHandle = source.outputs.some((o) => o.name === binding.outputName) ? binding.outputName : source.outputs[0]?.name
       result[field.name] = {
-        sourceNodeId: sourceNode.id,
-        sourceBlockLabel: sourceDef?.label ?? sourceBlockType,
-        availableOutputs: sourceOutputs.map((o) => ({ name: o.name, label: o.label })),
+        sourceNodeId: binding.sourceNodeId,
+        sourceBlockLabel: source.nodeLabel,
+        availableOutputs: source.outputs.map((o) => ({ name: o.name, label: o.label })),
+        currentSourceHandle: currentSourceHandle ?? binding.outputName,
       }
     }
     return result
-  }, [edges, id, definition.inputs, getNodes])
+  }, [data.inputSources, definition.inputs, availableDataSources])
 
-  // Unique source block labels for all edges targeting this node ("Connected to X, Y")
+  // Labels of execution-upstream blocks ("Connected to X, Y")
   const connectedSourceLabels = useMemo(() => {
-    const nodes = getNodes()
-    const labels = new Set<string>()
-    for (const e of edges) {
-      if (e.target !== id) continue
-      const sourceNode = nodes.find((n) => n.id === e.source)
-      if (!sourceNode) continue
-      const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
-      const def = getBlock(sourceBlockType)
-      if (def?.label) labels.add(def.label)
-    }
-    return Array.from(labels)
-  }, [edges, id, getNodes])
+    return availableDataSources.map((s) => s.nodeLabel)
+  }, [availableDataSources])
 
-  // For streamDisplay: source block outputs for "Fields to Show" (from data connection or any incoming edge)
+  // For streamDisplay: source block outputs for "Fields to Show" (from inputSources.data)
   const streamDisplaySourceOutputs = useMemo(() => {
     if (blockType !== 'streamDisplay') return []
     const dataConn = connectionInfoByInput['data']
     if (dataConn?.availableOutputs?.length) return dataConn.availableOutputs
-    const nodes = getNodes()
-    const edge = edges.find((e) => e.target === id)
-    if (!edge) return []
-    const sourceNode = nodes.find((n) => n.id === edge.source)
-    if (!sourceNode) return []
-    const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
-    const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
-    if (!sourceOutputs.length) return []
-    return sourceOutputs.map((o) => ({ name: o.name, label: o.label }))
-  }, [blockType, connectionInfoByInput, edges, id, getNodes])
+    const inputSources = (data.inputSources as Record<string, { sourceNodeId: string; outputName: string }> | undefined) ?? {}
+    const dataBinding = inputSources['data']
+    if (dataBinding) {
+      const nodes = getNodes()
+      const sourceNode = nodes.find((n) => n.id === dataBinding.sourceNodeId)
+      if (sourceNode) {
+        const sourceBlockType = (sourceNode.data?.blockType as string) ?? sourceNode.type
+        const outputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+        if (outputs.length > 0) return outputs.map((o) => ({ name: o.name, label: o.label }))
+      }
+    }
+    return []
+  }, [blockType, connectionInfoByInput, data.inputSources, getNodes])
 
   const onSourceOutputChange = useCallback(
     (fieldName: string, outputName: string) => {
-      const edge = edges.find((e) => e.target === id && e.targetHandle === fieldName)
-      if (!edge) return
-      setEdges((eds) =>
-        eds.map((e) => (e.id === edge.id ? { ...e, sourceHandle: outputName } : e)),
+      const binding = (data.inputSources as Record<string, { sourceNodeId: string; outputName: string }> | undefined)?.[fieldName]
+      if (!binding) return
+      setNodes((nodes) =>
+        nodes.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  inputSources: {
+                    ...((n.data?.inputSources as Record<string, { sourceNodeId: string; outputName: string }>) ?? {}),
+                    [fieldName]: { sourceNodeId: binding.sourceNodeId, outputName },
+                  },
+                },
+              }
+            : n,
+        ),
       )
     },
-    [id, edges, setEdges],
+    [id, data.inputSources, setNodes],
+  )
+
+  const onInputSourceChange = useCallback(
+    (fieldName: string, binding: { sourceNodeId: string; outputName: string } | null) => {
+      setNodes((nodes) =>
+        nodes.map((n) => {
+          if (n.id !== id) return n
+          const current = (n.data?.inputSources as Record<string, { sourceNodeId: string; outputName: string }>) ?? {}
+          if (binding) {
+            return { ...n, data: { ...n.data, inputSources: { ...current, [fieldName]: binding } } }
+          }
+          const next = { ...current }
+          delete next[fieldName]
+          return { ...n, data: { ...n.data, inputSources: next } }
+        }),
+      )
+    },
+    [id, setNodes],
   )
 
   const handleRunBlock = useCallback(async () => {
@@ -320,6 +336,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     ? definition.inputs.filter((f) => !mainInputNames.has(f.name) && !hiddenInputNames.has(f.name) && isVisible(f.name))
     : []
 
+  const execOutCount = outputConnections[EXEC_OUT_HANDLE] ?? 0
   const renderOutputsSection = () =>
     resolvedOutputs.length > 0 ? (
       <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-800/60">
@@ -327,7 +344,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
           Outputs
         </span>
         {resolvedOutputs.map((out) => {
-          const connectionCount = outputConnections[out.name] || 0
+          const connectionCount = execOutCount
           return (
             <div key={out.name} className="flex items-center gap-1.5 group relative">
               <div
@@ -401,6 +418,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                     ? (outputName) => onSourceOutputChange(field.name, outputName)
                     : undefined
                 }
+                availableDataSources={availableDataSources}
+                onInputSourceChange={onInputSourceChange}
                 hideSourceLabel={connectedSourceLabels.length > 0}
                 suffix={field.name === 'amount' ? amountSuffix : undefined}
                 onSuffixClick={field.name === 'amount' ? onAmountSuffixClick : undefined}
@@ -425,6 +444,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   ? (outputName) => onSourceOutputChange(field.name, outputName)
                   : undefined
               }
+              availableDataSources={availableDataSources}
+              onInputSourceChange={onInputSourceChange}
               hideSourceLabel={connectedSourceLabels.length > 0}
             />
           ))}
@@ -464,22 +485,6 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
             </button>
           ) : (
             definition.inputs.filter((f) => !hiddenInputNames.has(f.name)).map((field) => {
-              if (blockType === 'streamDisplay' && field.name === 'data') {
-                const dataConn = connectionInfoByInput['data']
-                if (!dataConn) {
-                  return (
-                    <div key={field.name} className="flex flex-col gap-1">
-                      <p className="text-[10px] text-slate-500 italic">Connect a block to choose outputs</p>
-                    </div>
-                  )
-                }
-                const { sourceBlockLabel } = dataConn
-                return (
-                  <div key={field.name} className="flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-400">Connected to {sourceBlockLabel}</span>
-                  </div>
-                )
-              }
               if (blockType === 'streamDisplay' && field.name === 'fields') {
                 const options = streamDisplaySourceOutputs
                 let selected: string[] = []
@@ -503,7 +508,9 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                     </label>
                     {options.length === 0 ? (
                       <p className="text-[10px] text-slate-500 italic">
-                        Connect a block above to choose fields
+                        {availableDataSources.length > 0
+                          ? 'Select a source in the Source field above to choose which fields to display.'
+                          : 'Connect a block above, then select its source in the Source field to choose fields.'}
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
@@ -543,6 +550,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                       ? (outputName) => onSourceOutputChange(field.name, outputName)
                       : undefined
                   }
+                  availableDataSources={availableDataSources}
+                  onInputSourceChange={onInputSourceChange}
                   hideSourceLabel={connectedSourceLabels.length > 0}
                   suffix={field.name === 'amount' ? amountSuffix : undefined}
                   onSuffixClick={field.name === 'amount' ? onAmountSuffixClick : undefined}
@@ -610,7 +619,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                 Outputs
               </span>
               {resolvedOutputs.map((out) => {
-                const connectionCount = outputConnections[out.name] || 0
+                const connectionCount = execOutCount
                 return (
                   <div key={out.name} className="flex items-center gap-1.5 group relative">
                     <div
@@ -644,53 +653,28 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   )
 
   return (
-    <div className="relative">
+    <div className="relative" title={`Block ID: ${id}`}>
       {nodeContent}
 
-      {/* Input handles on left edge so React Flow sets targetHandle and BlockInput shows output dropdown (General Filter, Merge). showHandleWhenEmpty: only when value empty or connected. */}
+      {/* Execution input handle (one per non-trigger block) */}
       {definition.category !== 'trigger' && (
-        <div className="absolute -left-[6px] top-0 bottom-0 w-[12px] z-10 pointer-events-none">
-          <div className="absolute inset-0 pointer-events-auto">
-            {definition.inputs.map((field, index) => {
-              if (field.type === 'walletAddress') return null
-              if (field.type === 'select' || field.type === 'toggle') return null
-              if (blockType === 'streamDisplay' && field.name === 'fields') return null
-              if (field.sourceOutputsFrom) return null
-              if (hiddenInputNames.has(field.name)) return null
-              const valueEmpty = (inputs[field.name] ?? '').trim() === ''
-              const isConnected = inputConnections[field.name]
-              if (field.showHandleWhenEmpty && !valueEmpty && !isConnected) return null
-              const topPercent = ((index + 0.5) / definition.inputs.length) * 100
-              return (
-                <Handle
-                  key={field.name}
-                  type="target"
-                  position={Position.Left}
-                  id={field.name}
-                  className={isConnected ? '!bg-emerald-400 !border-emerald-500' : ''}
-                  style={{ left: 0, top: `${topPercent}%`, transform: 'translateY(-50%)' }}
-                />
-              )
-            })}
-          </div>
-        </div>
+        <Handle
+          type="target"
+          position={Position.Left}
+          id={EXEC_IN_HANDLE}
+          className={(edges.some((e) => e.target === id && (e.targetHandle === EXEC_IN_HANDLE || e.targetHandle == null)) ? '!bg-emerald-400 !border-emerald-500' : '') + ' -left-[6px]'}
+          style={{ top: '50%', transform: 'translateY(-50%)' }}
+        />
       )}
 
-      {/* Output handles on right side, aligned with outputs */}
-      <div className="absolute right-0 top-0 bottom-0 flex flex-col justify-center gap-1 -mr-[5px]">
-        {resolvedOutputs.map((out) => {
-          const isConnected = (outputConnections[out.name] ?? 0) > 0
-          return (
-            <Handle
-              key={out.name}
-              type="source"
-              position={Position.Right}
-              id={out.name}
-              className={isConnected ? '!bg-emerald-400 !border-emerald-500' : ''}
-            />
-          )
-        })}
-      </div>
+      {/* Execution output handle (one per block) */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={EXEC_OUT_HANDLE}
+        className={(execOutCount > 0 ? '!bg-emerald-400 !border-emerald-500' : '') + ' -right-[5px]'}
+        style={{ top: '50%', transform: 'translateY(-50%)' }}
+      />
     </div>
   )
 }

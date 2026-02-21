@@ -38,9 +38,9 @@ export async function timeLoop(inputs: Record<string, string>): Promise<{ elapse
   return { elapsed: `${seconds}s` }
 }
 
-// ─── General Filter ───────────────────────────────────────
+// ─── General Comparator ───────────────────────────────────────
 
-export type GeneralFilterOperator =
+export type GeneralComparatorOperator =
   | 'equals'
   | 'not_equals'
   | 'greater_than'
@@ -67,10 +67,10 @@ function toComparable(a: unknown, b: unknown): { a: number | string; b: number |
   }
 }
 
-export function generalFilter(inputs: Record<string, string>): { passed: 'true' | 'false' } {
+export function generalComparator(inputs: Record<string, string>): { passed: 'true' | 'false' } {
   const top = inputs.valueToFilterTop ?? ''
   const bottom = inputs.valueToFilterBottom ?? ''
-  const operator = (inputs.operator ?? 'greater_than') as GeneralFilterOperator
+  const operator = (inputs.operator ?? 'greater_than') as GeneralComparatorOperator
 
   let passed: boolean
   const { a: left, b: right, numeric } = toComparable(top, bottom)
