@@ -2,15 +2,22 @@ import { getBlock, getOutputsForBlock } from '../lib/blockRegistry'
 import type { InputField } from '../lib/blockRegistry'
 import type { Node } from '@xyflow/react'
 
+export type ConnectionValidationContext = {
+  nodes: Node[]
+  edges: Array<{ source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }>
+}
+
 /**
  * Check if a connection between source output and target input is valid based on types.
  * Returns { valid: boolean, reason?: string }
+ * When context is provided and source is streamDisplay, uses the block connected to its data input for output list.
  */
 export function isValidConnection(
   sourceNode: Node | undefined,
   targetNode: Node | undefined,
   sourceHandle: string | null,
-  targetHandle: string | null
+  targetHandle: string | null,
+  context?: ConnectionValidationContext
 ): { valid: boolean; reason?: string } {
   // Allow connections if nodes are missing (shouldn't happen, but be safe)
   if (!sourceNode || !targetNode) {
@@ -33,8 +40,22 @@ export function isValidConnection(
     return { valid: true }
   }
 
-  // Find the output and input fields (use resolved outputs when block has dynamic outputs)
-  const sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+  // Resolve source outputs: for Output Display use the block connected to its data input
+  let sourceOutputs = getOutputsForBlock(sourceBlockType, sourceNode.data ?? {})
+  if (sourceBlockType === 'streamDisplay' && context?.nodes && context?.edges) {
+    const dataEdge = context.edges.find(
+      (e) => e.target === sourceNode.id && e.targetHandle === 'data'
+    )
+    if (dataEdge) {
+      const dataSourceNode = context.nodes.find((n) => n.id === dataEdge.source)
+      if (dataSourceNode) {
+        const dataSourceBlockType = (dataSourceNode.data?.blockType as string) ?? dataSourceNode.type
+        const resolved = getOutputsForBlock(dataSourceBlockType, dataSourceNode.data ?? {})
+        if (resolved.length > 0) sourceOutputs = resolved
+      }
+    }
+  }
+
   const sourceOutput = sourceOutputs.find((o) => o.name === sourceHandle)
   const targetInput = targetBlock.inputs.find((i: InputField) => i.name === targetHandle)
 

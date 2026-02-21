@@ -153,6 +153,28 @@ function normalizeEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
   return result
 }
 
+/** Resolve effective outputs for a node (for streamDisplay, use the block connected to its data input). */
+function getEffectiveSourceOutputs(
+  sourceNode: Node,
+  sourceBlock: string,
+  edges: Edge[],
+  nodeMap: Map<string, Node>
+): { name: string; label: string; type?: string }[] {
+  let outputs = getOutputsForBlock(sourceBlock, sourceNode.data ?? {})
+  if (sourceBlock === 'streamDisplay') {
+    const dataEdge = edges.find((e) => e.target === sourceNode.id && e.targetHandle === 'data')
+    if (dataEdge) {
+      const dataSourceNode = nodeMap.get(dataEdge.source)
+      if (dataSourceNode) {
+        const dataSourceBlock = (dataSourceNode.data?.blockType as string) ?? dataSourceNode.type
+        const resolved = getOutputsForBlock(dataSourceBlock, dataSourceNode.data ?? {})
+        if (resolved.length > 0) outputs = resolved
+      }
+    }
+  }
+  return outputs
+}
+
 /** Keep only edges whose sourceHandle and targetHandle exist on the block defs and target is connectable (not walletAddress). */
 function validateAndFilterEdges(nodes: Node[], edges: Edge[]): Edge[] {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
@@ -166,7 +188,7 @@ function validateAndFilterEdges(nodes: Node[], edges: Edge[]): Edge[] {
     const defSource = getBlock(sourceBlock)
     const defTarget = getBlock(targetBlock)
     if (!defSource || !defTarget) return false
-    const sourceOutputs = getOutputsForBlock(sourceBlock, sourceNode.data ?? {})
+    const sourceOutputs = getEffectiveSourceOutputs(sourceNode, sourceBlock, edges, nodeMap)
     const sourceOk = sourceOutputs.some((o) => o.name === e.sourceHandle)
     if (!sourceOk) return false
     const targetInput = defTarget.inputs.find((i) => i.name === e.targetHandle)
@@ -375,6 +397,7 @@ export default function App() {
             targetNode,
             connection.sourceHandle,
             connection.targetHandle,
+            { nodes: currentNodes, edges: edgesRef.current },
           )
 
           if (!validation.valid) {

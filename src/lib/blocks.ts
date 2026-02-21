@@ -35,7 +35,20 @@ import {
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
 import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
-import { webhook, timeLoop, generalFilter } from '../services/general'
+import {
+  webhook,
+  timeLoop,
+  generalFilter,
+  delay,
+  numericRangeFilter,
+  stringMatchFilter,
+  rateLimitFilter,
+  conditionalBranch,
+  mergeOutputs,
+  logDebug,
+} from '../services/general'
+import { sendTelegram, sendDiscord } from '../services/notifications'
+import { subscribeToTransfer } from '../services/walletEvent'
 
 // ─── Unified Hyperliquid Stream Block ───────────────────
 
@@ -308,16 +321,7 @@ registerBlock({
       label: 'Top',
       type: 'text',
       placeholder: 'Connect or type value',
-      allowVariable: false,
-      accepts: ['json', 'string', 'number'],
-      showHandleWhenEmpty: true,
-    },
-    {
-      name: 'valueToFilterBottom',
-      label: 'Bottom',
-      type: 'text',
-      placeholder: 'Connect or type value',
-      allowVariable: false,
+      allowVariable: true,
       accepts: ['json', 'string', 'number'],
       showHandleWhenEmpty: true,
     },
@@ -354,6 +358,15 @@ registerBlock({
         empty: 'Top is empty',
         not_empty: 'Top is non-empty',
       },
+    },
+    {
+      name: 'valueToFilterBottom',
+      label: 'Bottom',
+      type: 'text',
+      placeholder: 'Connect or type value',
+      allowVariable: true,
+      accepts: ['json', 'string', 'number'],
+      showHandleWhenEmpty: true,
     },
     {
       name: 'passThrough',
@@ -569,5 +582,264 @@ registerBlock({
     { name: 'triggered', label: 'Triggered' },
   ],
   run: async () => ({ triggered: 'true' }),
+})
+
+// ─── HTTP / Webhook Trigger (no server in browser; use backend to POST) ───
+
+registerBlock({
+  type: 'webhookTrigger',
+  label: 'Webhook Trigger',
+  description: 'Fires when an HTTP request is received at your webhook URL. Use a backend (e.g. Supabase Edge Function) to POST to your agent.',
+  category: 'trigger',
+  color: 'blue',
+  icon: 'radio',
+  inputs: [
+    { name: 'webhookPath', label: 'Webhook path (for reference)', type: 'text', placeholder: 'e.g. /webhook/agent-id' },
+  ],
+  outputs: [
+    { name: 'body', label: 'Request Body', type: 'string' },
+    { name: 'method', label: 'Method', type: 'string' },
+    { name: 'headers', label: 'Headers (JSON)', type: 'json' },
+  ],
+  run: async (inputs) => ({
+    body: inputs.body ?? '',
+    method: inputs.method ?? 'POST',
+    headers: inputs.headers ?? '{}',
+  }),
+  subscribe: (_inputs, _onTrigger) => () => {},
+})
+
+// ─── Wallet / Contract Event Trigger ──────────────────────────────────────
+
+registerBlock({
+  type: 'walletEventTrigger',
+  label: 'Wallet Event',
+  description: 'Trigger on ERC20 Transfer events. Optionally filter by wallet (from or to).',
+  category: 'trigger',
+  color: 'violet',
+  icon: 'wallet',
+  inputs: [
+    { name: 'chainId', label: 'Chain ID', type: 'number', defaultValue: '1', placeholder: '1' },
+    { name: 'contractAddress', label: 'Contract Address', type: 'address', placeholder: '0x...' },
+    { name: 'filterWallet', label: 'Filter: wallet (from or to)', type: 'address', placeholder: 'Optional' },
+    { name: 'rpcUrl', label: 'RPC URL (optional)', type: 'text', placeholder: 'Leave empty for default' },
+  ],
+  outputs: [
+    { name: 'from', label: 'From', type: 'address' },
+    { name: 'to', label: 'To', type: 'address' },
+    { name: 'value', label: 'Value', type: 'string' },
+    { name: 'txHash', label: 'Tx Hash', type: 'string' },
+    { name: 'blockNumber', label: 'Block Number', type: 'string' },
+  ],
+  run: async () => ({}),
+  subscribe: (inputs, onTrigger) => subscribeToTransfer(inputs, onTrigger),
+})
+
+// ─── Send Notification: Telegram ─────────────────────────────────────────
+
+registerBlock({
+  type: 'sendTelegram',
+  label: 'Send Telegram',
+  description: 'Send a message via Telegram Bot API. Create a bot with @BotFather and get chat ID from @userinfobot.',
+  category: 'action',
+  color: 'blue',
+  icon: 'messageSquare',
+  inputs: [
+    { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
+    { name: 'chatId', label: 'Chat ID', type: 'text', placeholder: 'e.g. -1001234567890' },
+    { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
+    { name: 'parseMode', label: 'Parse mode', type: 'select', options: ['HTML', 'Markdown', 'MarkdownV2'], defaultValue: 'HTML' },
+    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
+  ],
+  outputs: [
+    { name: 'ok', label: 'OK', type: 'boolean' },
+    { name: 'status', label: 'Status', type: 'string' },
+    { name: 'response', label: 'Response', type: 'json' },
+  ],
+  run: async (inputs) => sendTelegram(inputs),
+})
+
+// ─── Send Notification: Discord ───────────────────────────────────────────
+
+registerBlock({
+  type: 'sendDiscord',
+  label: 'Send Discord',
+  description: 'Send a message to a Discord channel via webhook URL.',
+  category: 'action',
+  color: 'violet',
+  icon: 'messageSquare',
+  inputs: [
+    { name: 'webhookUrl', label: 'Webhook URL', type: 'text', placeholder: 'https://discord.com/api/webhooks/...' },
+    { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
+    { name: 'username', label: 'Username (optional)', type: 'text', placeholder: 'Bot name' },
+    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
+  ],
+  outputs: [
+    { name: 'ok', label: 'OK', type: 'boolean' },
+    { name: 'status', label: 'Status', type: 'string' },
+    { name: 'response', label: 'Response', type: 'string' },
+  ],
+  run: async (inputs) => sendDiscord(inputs),
+})
+
+// ─── Log / Debug ──────────────────────────────────────────────────────────
+
+registerBlock({
+  type: 'logDebug',
+  label: 'Log / Debug',
+  description: 'Log inputs to the browser console and pass through. Useful for debugging flows.',
+  category: 'action',
+  color: 'amber',
+  icon: 'bug',
+  inputs: [
+    { name: 'passthrough', label: 'Pass through value', type: 'text', placeholder: 'Optional', allowVariable: true },
+  ],
+  outputs: [
+    { name: 'out', label: 'Out', type: 'string' },
+  ],
+  run: async (inputs) => logDebug(inputs),
+})
+
+// ─── Numeric range filter ─────────────────────────────────────────────────
+
+registerBlock({
+  type: 'numericRangeFilter',
+  label: 'Numeric Range',
+  description: 'Pass only when the connected value is within min and max (inclusive).',
+  category: 'filter',
+  color: 'yellow',
+  icon: 'filter',
+  inputs: [
+    { name: 'value', label: 'Value', type: 'number', allowVariable: true, accepts: ['number', 'string'] },
+    { name: 'min', label: 'Min', type: 'number', defaultValue: '0' },
+    { name: 'max', label: 'Max', type: 'number', defaultValue: '100' },
+  ],
+  outputs: [
+    { name: 'passed', label: 'Passed', type: 'string' },
+    { name: 'value', label: 'Value', type: 'string' },
+    { name: 'inRange', label: 'In Range', type: 'string' },
+  ],
+  run: async (inputs) => numericRangeFilter(inputs),
+})
+
+// ─── String match filter ─────────────────────────────────────────────────
+
+registerBlock({
+  type: 'stringMatchFilter',
+  label: 'String Match',
+  description: 'Pass when value matches: contains, equals, or regex pattern.',
+  category: 'filter',
+  color: 'yellow',
+  icon: 'filter',
+  inputs: [
+    { name: 'value', label: 'Value', type: 'text', allowVariable: true, accepts: ['string', 'json'] },
+    { name: 'mode', label: 'Mode', type: 'select', options: ['contains', 'equals', 'regex'], defaultValue: 'contains' },
+    { name: 'pattern', label: 'Pattern', type: 'text', placeholder: 'Substring, exact string, or regex' },
+  ],
+  outputs: [
+    { name: 'passed', label: 'Passed', type: 'string' },
+    { name: 'matched', label: 'Matched', type: 'string' },
+    { name: 'value', label: 'Value', type: 'string' },
+  ],
+  run: async (inputs) => stringMatchFilter(inputs),
+})
+
+// ─── Rate limit / debounce ────────────────────────────────────────────────
+
+registerBlock({
+  type: 'rateLimitFilter',
+  label: 'Rate Limit',
+  description: 'Pass only when at least N seconds have passed since last pass (per agent).',
+  category: 'filter',
+  color: 'amber',
+  icon: 'clock',
+  inputs: [
+    { name: 'intervalSeconds', label: 'Min interval (seconds)', type: 'number', defaultValue: '60', min: 1, max: 86400 },
+  ],
+  outputs: [
+    { name: 'passed', label: 'Passed', type: 'string' },
+    { name: 'elapsed', label: 'Elapsed since last', type: 'string' },
+    { name: 'nextAllowedIn', label: 'Next allowed in (s)', type: 'string' },
+  ],
+  run: async (inputs, context) =>
+    rateLimitFilter(inputs, context?.nodeId ?? '', context?.agentId),
+})
+
+// ─── Delay (sleep) ────────────────────────────────────────────────────────
+
+registerBlock({
+  type: 'delay',
+  label: 'Delay',
+  description: 'Wait N seconds before continuing the flow.',
+  category: 'action',
+  color: 'yellow',
+  icon: 'clock',
+  inputs: [
+    { name: 'seconds', label: 'Seconds', type: 'slider', min: 0, max: 300, step: 1, defaultValue: '1' },
+  ],
+  outputs: [
+    { name: 'done', label: 'Done', type: 'string' },
+  ],
+  run: async (inputs) => delay(inputs),
+})
+
+// ─── Conditional branch (if/else) ──────────────────────────────────────────
+
+registerBlock({
+  type: 'conditionalBranch',
+  label: 'Conditional',
+  description: 'Branch by condition: connect the value; "true" and "false" outputs run only the matching branch.',
+  category: 'filter',
+  color: 'blue',
+  icon: 'gitBranch',
+  inputs: [
+    { name: 'condition', label: 'Condition', type: 'text', allowVariable: true, accepts: ['string', 'number', 'boolean'] },
+  ],
+  outputs: [
+    { name: 'true', label: 'True', type: 'string' },
+    { name: 'false', label: 'False', type: 'string' },
+  ],
+  run: async (inputs) => conditionalBranch(inputs),
+})
+
+// ─── Merge ────────────────────────────────────────────────────────────────
+
+registerBlock({
+  type: 'merge',
+  label: 'Merge',
+  description: 'Combine multiple inputs into one output. Connect values to input handles or leave empty.',
+  category: 'action',
+  color: 'violet',
+  icon: 'merge',
+  inputs: [
+    { name: 'mode', label: 'Mode', type: 'select', options: ['first', 'concat', 'json'], defaultValue: 'first' },
+    { name: 'separator', label: 'Separator (for concat)', type: 'text', defaultValue: ', ' },
+    { name: 'in1', label: 'In 1', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+    { name: 'in2', label: 'In 2', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+    { name: 'in3', label: 'In 3', type: 'text', allowVariable: true, showHandleWhenEmpty: true },
+  ],
+  outputs: [
+    { name: 'out', label: 'Out', type: 'string' },
+  ],
+  run: async (inputs) => mergeOutputs(inputs),
+})
+
+// ─── Constant ─────────────────────────────────────────────────────────────
+
+registerBlock({
+  type: 'constant',
+  label: 'Constant',
+  description: 'Output a fixed value. Connect to other blocks or use {{constantNodeId.value}} in expressions.',
+  category: 'action',
+  color: 'blue',
+  icon: 'variable',
+  inputs: [
+    { name: 'name', label: 'Name (for reference)', type: 'text', placeholder: 'e.g. maxSlippage' },
+    { name: 'value', label: 'Value', type: 'text', placeholder: 'e.g. 0.5', allowVariable: false },
+  ],
+  outputs: [
+    { name: 'value', label: 'Value', type: 'string' },
+  ],
+  run: async (inputs) => ({ value: inputs.value ?? '' }),
 })
 

@@ -13,6 +13,12 @@ import {
   Globe,
   Send,
   Database,
+  MessageSquare,
+  Bug,
+  GitBranch,
+  Merge,
+  Variable,
+  Radio,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -194,6 +200,12 @@ const iconMap: Record<string, LucideIcon> = {
   globe: Globe,
   send: Send,
   database: Database,
+  messageSquare: MessageSquare,
+  bug: Bug,
+  gitBranch: GitBranch,
+  merge: Merge,
+  variable: Variable,
+  radio: Radio,
 }
 
 export function getBlockIcon(name: string): LucideIcon {

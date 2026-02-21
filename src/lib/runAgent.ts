@@ -49,11 +49,17 @@ export type RunContext = {
   sendTransaction?: ((tx: SwapTx) => Promise<string>) | null
   /** Sign EIP-712 typed data (e.g. UniswapX permit). When provided, swap block can submit gasless orders. */
   signTypedData?: ((params: SignTypedDataParams) => Promise<string>) | null
+  /** Current node id (for blocks that need identity, e.g. rate limit). */
+  nodeId?: string
+  /** Current agent id (for blocks that need identity, e.g. rate limit). */
+  agentId?: string
 }
 
 export type RunOptions = {
   /** When a streamDisplay node completes, called with its node id and lastEvent value (for TV preview). */
   onDisplayUpdate?: (nodeId: string, value: string) => void
+  /** Agent id when running from subscribeToAgent (for rate limit, etc.). */
+  agentId?: string
 }
 
 /**
@@ -161,16 +167,24 @@ export async function runDownstreamGraph(
       inputs.swapper = context.walletAddress
     }
 
+    const runContext = {
+      ...context,
+      nodeId,
+      agentId: context?.agentId ?? options?.agentId,
+    }
     try {
-      const result = await def.run(inputs, context)
+      const result = await def.run(inputs, runContext)
       outputs.set(nodeId, result)
       processed.add(nodeId)
       if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
         options.onDisplayUpdate(nodeId, JSON.stringify(result, null, 2))
       }
       console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, result)
+      // Only queue targets for output handles that have a truthy value (enables conditional branching)
       for (const out of node.outputs) {
-        if (!processed.has(out.targetNodeId) && !queue.includes(out.targetNodeId)) {
+        const handleName = out.sourceHandle ?? Object.keys(result)[0]
+        const outVal = handleName != null ? result[handleName] : undefined
+        if (outVal != null && String(outVal).trim() !== '' && !processed.has(out.targetNodeId) && !queue.includes(out.targetNodeId)) {
           queue.push(out.targetNodeId)
         }
       }
@@ -199,10 +213,8 @@ export function subscribeToAgent(
   subscribeOptions?: SubscribeOptions,
 ): () => void {
   const cleanups: Array<() => void> = []
-  const runOptions: RunOptions | undefined =
-    subscribeOptions?.onDisplayUpdate
-      ? { onDisplayUpdate: subscribeOptions.onDisplayUpdate }
-      : undefined
+  const runOptions: RunOptions = { agentId }
+  if (subscribeOptions?.onDisplayUpdate) runOptions.onDisplayUpdate = subscribeOptions.onDisplayUpdate
   const getModel = subscribeOptions?.getModel
 
   for (const node of model.nodes) {

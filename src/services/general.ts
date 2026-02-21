@@ -129,3 +129,119 @@ export function generalFilter(inputs: Record<string, string>): {
     data,
   }
 }
+
+// ─── Delay (in-flow sleep) ─────────────────────────────────
+
+export async function delay(inputs: Record<string, string>): Promise<{ done: string }> {
+  const seconds = Number(inputs.seconds ?? '1')
+  const sec = Math.max(0, Math.min(300, isNaN(seconds) ? 1 : seconds))
+  await new Promise((r) => setTimeout(r, sec * 1000))
+  return { done: `${sec}s` }
+}
+
+// ─── Numeric range filter ──────────────────────────────────
+
+export function numericRangeFilter(inputs: Record<string, string>): Record<string, string> {
+  const raw = inputs.value ?? ''
+  const min = Number(inputs.min ?? '-Infinity')
+  const max = Number(inputs.max ?? 'Infinity')
+  const n = Number(raw)
+  const valid = raw.trim() !== '' && Number.isFinite(n) && n >= min && n <= max
+  return {
+    passed: valid ? 'true' : 'false',
+    value: valid ? String(n) : raw,
+    inRange: valid ? 'true' : 'false',
+  }
+}
+
+// ─── String match filter ───────────────────────────────────
+
+export function stringMatchFilter(inputs: Record<string, string>): Record<string, string> {
+  const value = inputs.value ?? ''
+  const pattern = inputs.pattern ?? ''
+  const mode = (inputs.mode ?? 'contains') as 'contains' | 'equals' | 'regex'
+  let passed = false
+  let matched = ''
+
+  if (mode === 'contains') {
+    passed = value.includes(pattern)
+    matched = value
+  } else if (mode === 'equals') {
+    passed = value.trim() === pattern.trim()
+    matched = value
+  } else {
+    try {
+      const re = new RegExp(pattern)
+      const m = value.match(re)
+      passed = m != null
+      matched = m ? m[0] : ''
+    } catch {
+      passed = false
+    }
+  }
+
+  return {
+    passed: passed ? 'true' : 'false',
+    matched,
+    value: passed ? value : '',
+  }
+}
+
+// ─── Rate limit / debounce (per node key) ──────────────────
+
+const rateLimitLastRun = new Map<string, number>()
+
+export function rateLimitFilter(
+  inputs: Record<string, string>,
+  nodeId: string,
+  agentId?: string,
+): Record<string, string> {
+  const intervalSec = Math.max(1, Number(inputs.intervalSeconds ?? '60') || 60)
+  const key = agentId ? `${agentId}:${nodeId}` : nodeId
+  const now = Date.now() / 1000
+  const last = rateLimitLastRun.get(key) ?? 0
+  const elapsed = now - last
+  const allowed = elapsed >= intervalSec
+  if (allowed) rateLimitLastRun.set(key, now)
+  return {
+    passed: allowed ? 'true' : 'false',
+    elapsed: `${Math.floor(elapsed)}s`,
+    nextAllowedIn: allowed ? '0' : String(Math.ceil(intervalSec - elapsed)),
+  }
+}
+
+// ─── Conditional branch (if/else) ─────────────────────────
+
+export function conditionalBranch(inputs: Record<string, string>): Record<string, string> {
+  const raw = inputs.condition ?? ''
+  const truthy = raw !== '' && raw.toLowerCase() !== 'false' && raw !== '0'
+  return {
+    true: truthy ? '1' : '',
+    false: truthy ? '' : '1',
+  }
+}
+
+// ─── Merge (combine or first value) ────────────────────────
+
+const MERGE_SKIP_KEYS = new Set(['mode', 'separator'])
+
+export function mergeOutputs(inputs: Record<string, string>): Record<string, string> {
+  const mode = (inputs.mode ?? 'first') as 'first' | 'concat' | 'json'
+  const values: string[] = []
+  for (const [k, v] of Object.entries(inputs)) {
+    if (MERGE_SKIP_KEYS.has(k)) continue
+    if (v != null && String(v).trim() !== '') values.push(String(v).trim())
+  }
+  if (values.length === 0) return { out: '' }
+  if (mode === 'first') return { out: values[0] ?? '' }
+  if (mode === 'concat') return { out: values.join(inputs.separator ?? ', ') }
+  return { out: JSON.stringify(values) }
+}
+
+// ─── Log / Debug ───────────────────────────────────────────
+
+export function logDebug(inputs: Record<string, string>): Record<string, string> {
+  console.log('[Block Log/Debug]', inputs)
+  const passthrough = (inputs.passthrough ?? JSON.stringify(inputs)).trim()
+  return { out: passthrough || JSON.stringify(inputs) }
+}

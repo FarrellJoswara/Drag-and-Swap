@@ -504,7 +504,11 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   </div>
                 )
               }
-              return (
+              const valueEmpty = (inputs[field.name] ?? '').trim() === ''
+              const isConnected = inputConnections[field.name]
+              const showInlineHandle =
+                field.showHandleWhenEmpty && (valueEmpty || isConnected)
+              const inputRow = (
                 <BlockInput
                   key={field.name}
                   field={field}
@@ -522,6 +526,23 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                   onSuffixClick={field.name === 'amount' ? onAmountSuffixClick : undefined}
                 />
               )
+              if (showInlineHandle) {
+                return (
+                  <div key={field.name} className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">{inputRow}</div>
+                    <div className="relative w-4 h-4 flex-shrink-0 flex items-center justify-center [&_.react-flow__handle]:!relative [&_.react-flow__handle]:!left-0 [&_.react-flow__handle]:!top-0 [&_.react-flow__handle]:!translate-x-0 [&_.react-flow__handle]:!translate-y-0 [&_.react-flow__handle]:!m-0" data-handle-for={field.name}>
+                      <Handle
+                        type="target"
+                        position={Position.Left}
+                        id={field.name}
+                        className={isConnected ? '!bg-emerald-400 !border-emerald-500' : ''}
+                        style={{ position: 'relative', left: 0, top: 0, transform: 'none', margin: 0 }}
+                      />
+                    </div>
+                  </div>
+                )
+              }
+              return inputRow
             })
           )}
 
@@ -620,39 +641,31 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     <div className="relative">
       {nodeContent}
 
-      {/* Input handles on left side, aligned with inputs */}
+      {/* Input handles on left side (skip fields with showHandleWhenEmpty — those are rendered inline to the right of their input) */}
       {definition.category !== 'trigger' && (
-        <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-center gap-1 -ml-[5px]">
-          {definition.inputs.map((field) => {
-            if (field.type === 'walletAddress') {
-              return <div key={field.name} className="w-[5px]" aria-hidden />
-            }
-            if (blockType === 'streamDisplay' && field.name === 'fields') {
-              return <div key={field.name} className="w-[5px]" aria-hidden />
-            }
-            if (field.sourceOutputsFrom) {
-              return <div key={field.name} className="w-[5px]" aria-hidden />
-            }
-            if (hiddenInputNames.has(field.name)) {
-              return <div key={field.name} className="w-[5px]" aria-hidden />
-            }
-            if (field.showHandleWhenEmpty) {
-              const value = (inputs[field.name] ?? '').trim()
-              if (value !== '') {
-                return <div key={field.name} className="w-[5px]" aria-hidden />
-              }
-            }
-            const isConnected = inputConnections[field.name]
-            return (
-              <Handle
-                key={field.name}
-                type="target"
-                position={Position.Left}
-                id={field.name}
-                className={`${isConnected ? '!bg-emerald-400 !border-emerald-500' : ''}`}
-              />
-            )
-          })}
+        <div className="absolute left-0 top-0 bottom-0 w-[10px] -ml-[5px] pointer-events-none">
+          <div className="absolute inset-0 pointer-events-auto">
+            {definition.inputs.map((field, index) => {
+              if (field.showHandleWhenEmpty) return null
+              if (field.type === 'walletAddress') return null
+              if (field.type === 'select' || field.type === 'toggle') return null
+              if (blockType === 'streamDisplay' && field.name === 'fields') return null
+              if (field.sourceOutputsFrom) return null
+              if (hiddenInputNames.has(field.name)) return null
+              const isConnected = inputConnections[field.name]
+              const topPercent = ((index + 0.5) / definition.inputs.length) * 100
+              return (
+                <Handle
+                  key={field.name}
+                  type="target"
+                  position={Position.Left}
+                  id={field.name}
+                  className={isConnected ? '!bg-emerald-400 !border-emerald-500' : ''}
+                  style={{ top: `${topPercent}%`, transform: 'translateY(-50%)' }}
+                />
+              )
+            })}
+          </div>
         </div>
       )}
 

@@ -12,6 +12,7 @@ export interface InputConnection {
 export interface OutputConnection {
   targetNodeId: string
   targetHandle?: string
+  sourceHandle?: string
   edgeId: string
 }
 
@@ -66,6 +67,7 @@ export function buildConnectedModel(nodes: Node[], edges: Edge[]): ConnectedMode
       sourceNode.outputs.push({
         targetNodeId: edge.target,
         targetHandle: edge.targetHandle ?? undefined,
+        sourceHandle: edge.sourceHandle ?? undefined,
         edgeId: edge.id,
       })
     }
