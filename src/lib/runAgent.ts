@@ -152,6 +152,9 @@ export async function runFromNode(
     if ((nodeDef.type === 'swap' || nodeDef.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
       inputs.swapper = context.walletAddress
     }
+    if (nodeDef.type === 'getWalletBalance' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress) && !inputs.wallet?.trim()) {
+      inputs.wallet = context.walletAddress
+    }
     try {
       const result = await nodeDef.run(inputs, { ...runContext, nodeId: nid, agentId: runContext.agentId })
       outputs.set(nid, result)
@@ -168,6 +171,9 @@ export async function runFromNode(
   const targetInputs = resolveInputs(targetNode, def, outputs)
   if ((def.type === 'swap' || def.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
     targetInputs.swapper = context.walletAddress
+  }
+  if (def.type === 'getWalletBalance' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress) && !targetInputs.wallet?.trim()) {
+    targetInputs.wallet = context.walletAddress
   }
   const targetResult = await def.run(targetInputs, { ...runContext, nodeId, agentId: runContext.agentId })
   outputs.set(nodeId, targetResult)
@@ -337,6 +343,9 @@ export async function runDownstreamGraph(
     // Swap and Get Quote blocks: always use connected wallet (no explicit wallet input)
     if ((def.type === 'swap' || def.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
       inputs.swapper = context.walletAddress
+    }
+    if (def.type === 'getWalletBalance' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress) && !inputs.wallet?.trim()) {
+      inputs.wallet = context.walletAddress
     }
 
     const runContext = {

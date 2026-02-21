@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
-import { Braces, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
-import { useState, useMemo, type DragEvent } from 'react'
+import { Braces, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, PanelLeftClose, PanelLeft, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
+import { useState, useMemo, useCallback, useRef, useEffect, type DragEvent } from 'react'
 import {
   getBlocksByCategory,
   getBlockIcon,
@@ -186,9 +186,64 @@ function filterVariables(variables: Variable[], q: string) {
 
 // ── Sidebar ───────────────────────────────────────────────
 
+const SIDEBAR_STORAGE_KEY = 'dragnswap-sidebar'
+const DEFAULT_WIDTH = 280
+const MIN_WIDTH = 200
+const MAX_WIDTH = 480
+const COLLAPSED_WIDTH = 52
+
+function loadSidebarState(): { width: number; collapsed: boolean } {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as { width?: number; collapsed?: boolean }
+      return {
+        width: typeof parsed.width === 'number' ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed.width)) : DEFAULT_WIDTH,
+        collapsed: !!parsed.collapsed,
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { width: DEFAULT_WIDTH, collapsed: false }
+}
+
 export default function Sidebar() {
   const [query, setQuery] = useState('')
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH)
+  const [collapsed, setCollapsed] = useState(false)
+  const resizeStartRef = useRef({ x: 0, width: 0 })
+
   const { variables, addVariable, updateVariable, removeVariable } = useVariables()
+
+  useEffect(() => {
+    const state = loadSidebarState()
+    setSidebarWidth(state.width)
+    setCollapsed(state.collapsed)
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify({ width: sidebarWidth, collapsed }))
+    } catch {
+      // ignore
+    }
+  }, [sidebarWidth, collapsed])
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    resizeStartRef.current = { x: e.clientX, width: sidebarWidth }
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - resizeStartRef.current.x
+      setSidebarWidth((w) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w + delta)))
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [sidebarWidth])
 
   const filteredVariables = useMemo(() => filterVariables(variables, query), [variables, query])
 
@@ -205,44 +260,78 @@ export default function Sidebar() {
   }, [query])
   const noVariables = filteredVariables.length === 0 && variables.length === 0
 
+  const width = collapsed ? COLLAPSED_WIDTH : sidebarWidth
+
   return (
-    <aside className="w-[220px] flex-shrink-0 h-full bg-[#0a0a0f] border-r border-slate-800/60 flex flex-col">
-      {/* Logo / Brand */}
-      <div className="px-4 py-4 border-b border-slate-800/60">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <img src="/logo.png" alt="Dragn Swap Logo" className="w-full h-full object-contain" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-100 tracking-tight">Dragn Swap</p>
-            <p className="text-[10px] text-slate-500">DeFi Automation</p>
-          </div>
+    <aside
+      className="flex-shrink-0 h-full bg-[#0a0a0f] border-r border-slate-800/60 flex flex-col relative transition-[width] duration-200 ease-out"
+      style={{ width }}
+    >
+      {/* Collapsed: only expand button + logo */}
+      {collapsed ? (
+        <div className="flex flex-col items-center py-3 gap-4 flex-1">
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 transition-colors"
+            title="Expand sidebar"
+          >
+            <PanelLeft size={18} />
+          </button>
+          <Link
+            to="/"
+            className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-600 flex-shrink-0"
+            title="Dragn Swap"
+          >
+            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain rounded-lg" />
+          </Link>
         </div>
-        <Link
-          to="/"
-          className="mt-3 flex items-center gap-2 px-2.5 py-2 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
-        >
-          <LayoutGrid size={12} />
-          <span className="text-xs font-medium">My Agents</span>
-        </Link>
-      </div>
+      ) : (
+        <>
+          {/* Logo / Brand */}
+          <div className="px-4 py-4 border-b border-slate-800/60 flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
+                <img src="/logo.png" alt="Dragn Swap Logo" className="w-full h-full object-contain" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-100 tracking-tight truncate">Dragn Swap</p>
+                <p className="text-[10px] text-slate-500">DeFi Automation</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 transition-colors flex-shrink-0"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          </div>
+          <Link
+            to="/"
+            className="mx-3 mt-2 flex items-center gap-2 px-2.5 py-2 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
+          >
+            <LayoutGrid size={12} />
+            <span className="text-xs font-medium">My Agents</span>
+          </Link>
 
-      {/* Search */}
-      <div className="px-3 py-3">
-        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg focus-within:border-indigo-500/50 transition-colors">
-          <Search size={12} className="text-slate-600 flex-shrink-0" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search blocks…"
-            className="bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none w-full"
-          />
-        </div>
-      </div>
+          {/* Search */}
+          <div className="px-3 py-3">
+            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg focus-within:border-indigo-500/50 transition-colors">
+              <Search size={12} className="text-slate-600 flex-shrink-0" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search blocks…"
+                className="bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none w-full"
+              />
+            </div>
+          </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 px-3 pb-4 flex flex-col gap-5 overflow-y-auto">
+          {/* Scrollable content */}
+          <div className="flex-1 px-3 pb-4 flex flex-col gap-5 overflow-y-auto">
         <CollapsibleCategorySection
           title="Triggers"
           icon={<Zap size={11} />}
@@ -316,14 +405,30 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="px-3 pb-3">
-        <div className="px-3 py-2 bg-slate-900/50 border border-slate-800/50 rounded-lg">
-          <p className="text-[10px] text-slate-600 leading-relaxed">
-            Connect nodes to build your automation flow.
-          </p>
+          {/* Footer */}
+          <div className="px-3 pb-3">
+            <div className="px-3 py-2 bg-slate-900/50 border border-slate-800/50 rounded-lg">
+              <p className="text-[10px] text-slate-600 leading-relaxed">
+                Connect nodes to build your automation flow.
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Resize handle (only when expanded) */}
+      {!collapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={handleResizeMouseDown}
+          className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-indigo-500/30 active:bg-indigo-500/50 transition-colors group"
+          title="Drag to resize"
+        >
+          <div className="absolute inset-y-0 -left-1 w-3" />
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0.5 h-12 bg-slate-700 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
-      </div>
+      )}
     </aside>
   )
 }

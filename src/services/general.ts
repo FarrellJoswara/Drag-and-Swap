@@ -261,6 +261,31 @@ export function priceChangePercent(currentPrice: string, previousPrice: string):
   return Number.isFinite(pct) ? pct.toFixed(2) : ''
 }
 
+/** Per-node buffer of last seen price for single-input price change % */
+const priceChangeBuffer = new Map<string, string>()
+
+/**
+ * Compute percent change from the last buffered value to current. Stores current for next run.
+ * Use when only one input (current price) is wired; previous is kept internally per nodeId.
+ * First run: stores value, returns '0'. Subsequent runs: returns % change then updates buffer.
+ */
+export function priceChangeWithBuffer(
+  nodeId: string,
+  currentPrice: string,
+): { percentChange: string; previousPrice: string } {
+  const current = String(currentPrice ?? '').trim()
+  const prev = priceChangeBuffer.get(nodeId) ?? current
+  let percentChange = '0'
+  const prevNum = Number(prev)
+  const currentNum = Number(current)
+  if (prev !== '' && current !== '' && Number.isFinite(prevNum) && Number.isFinite(currentNum) && prevNum !== 0) {
+    const pct = ((currentNum - prevNum) / prevNum) * 100
+    percentChange = Number.isFinite(pct) ? pct.toFixed(2) : '0'
+  }
+  priceChangeBuffer.set(nodeId, current)
+  return { percentChange, previousPrice: prev }
+}
+
 // ─── Transform Data Type ───────────────────────────────────
 
 export type TransformTargetType = 'number' | 'string' | 'boolean' | 'json'

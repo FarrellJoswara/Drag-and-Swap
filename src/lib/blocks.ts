@@ -87,13 +87,13 @@ function eventMatchesFilters(
 }
 import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
 import {
-  // webhook,
+  webhook,
   timeLoop,
   intervalToMs,
   generalComparator,
   delay,
   transformDataType,
-  priceChangePercent,
+  priceChangeWithBuffer,
   // numericRangeFilter,
   // stringMatchFilter,
   // rateLimitFilter,
@@ -101,7 +101,8 @@ import {
   // mergeOutputs,
   // logDebug,
 } from '../services/general'
-// import { sendTelegram, sendDiscord } from '../services/notifications'
+import { sendTelegram, startTelegramMessagePolling } from '../services/notifications'
+import { getWalletBalance } from '../services/walletBalance'
 // import { subscribeToTransfer } from '../services/walletEvent'
 
 // ─── Unified Hyperliquid Stream Block ───────────────────
@@ -1097,6 +1098,137 @@ registerBlock({
   },
 })
 
+// ─── Price at level (trigger when price meets target for a coin) ──────────
+
+function priceAtLevelMatches(
+  price: number,
+  targetPrice: number,
+  condition: string,
+  tolerancePercent: number,
+): boolean {
+  if (!Number.isFinite(targetPrice) || targetPrice <= 0 || !Number.isFinite(price)) return false
+  const cond = (condition ?? 'above').trim().toLowerCase()
+  if (cond === 'above') return price >= targetPrice
+  if (cond === 'below') return price <= targetPrice
+  if (cond === 'at') {
+    const tol = Math.max(0, Math.min(100, tolerancePercent))
+    const pct = Math.abs(price - targetPrice) / targetPrice * 100
+    return pct <= tol
+  }
+  return false
+}
+
+registerBlock({
+  type: 'priceAtLevel',
+  label: 'Price at level',
+  description: 'Trigger when the selected coin\'s price is above, below, or at a target level. Connect to actions or displays.',
+  category: 'trigger',
+  service: 'hyperliquid',
+  color: 'violet',
+  icon: 'activity',
+  inputs: [
+    {
+      name: 'coin',
+      label: 'Token',
+      type: 'tokenSelect',
+      tokens: LIVE_PRICE_TOKENS,
+      defaultValue: 'BTC',
+    },
+    { name: 'targetPrice', label: 'Target price', type: 'number', placeholder: 'e.g. 50000' },
+    {
+      name: 'condition',
+      label: 'Condition',
+      type: 'select',
+      options: ['above', 'below', 'at'],
+      defaultValue: 'above',
+      optionDescriptions: {
+        above: 'Fire when price >= target',
+        below: 'Fire when price <= target',
+        at: 'Fire when price within tolerance % of target',
+      },
+    },
+    { name: 'tolerancePercent', label: 'Tolerance % (for "at")', type: 'number', placeholder: '0.1', defaultValue: '0.1', min: 0, max: 100 },
+    {
+      name: 'source',
+      label: 'Source',
+      type: 'select',
+      options: ['Stream', 'Poll'],
+      defaultValue: 'Stream',
+      optionDescriptions: {
+        Stream: 'Every trade (real-time). Requires VITE_QUICKNODE_HYPERLIQUID_WS_URL.',
+        Poll: 'Mid price from API at a fixed interval.',
+      },
+    },
+    { name: 'intervalSeconds', label: 'Poll interval (seconds)', type: 'number', placeholder: '1', defaultValue: '1', min: 0.5, max: 3600 },
+  ],
+  outputs: [
+    { name: 'price', label: 'Price', type: 'number' },
+    { name: 'coin', label: 'Coin', type: 'string' },
+    { name: 'timestamp', label: 'Timestamp', type: 'string' },
+  ],
+  getVisibleInputs: (inputs) => {
+    const src = (inputs.source ?? 'Stream').trim()
+    const base = ['coin', 'targetPrice', 'condition', 'source']
+    if ((inputs.condition ?? '').trim().toLowerCase() === 'at') base.push('tolerancePercent')
+    if (src === 'Poll') base.push('intervalSeconds')
+    return base
+  },
+  run: async (inputs) => {
+    const coin = (inputs.coin ?? 'BTC').trim() || 'BTC'
+    const mids = await getAllMids()
+    const price = mids[coin] ?? mids[coin.toUpperCase()] ?? '0'
+    const timestamp = String(Date.now())
+    return { price, coin, timestamp }
+  },
+  subscribe: (inputs, onTrigger) => {
+    const coin = (inputs.coin ?? 'BTC').trim() || 'BTC'
+    const targetPrice = Number.parseFloat(String(inputs.targetPrice ?? '').trim()) || 0
+    const condition = (inputs.condition ?? 'above').trim()
+    const tolerancePercent = Math.max(0, Math.min(100, Number.parseFloat(String(inputs.tolerancePercent ?? '0.1').trim()) || 0.1))
+    const source = (inputs.source ?? 'Stream').trim() as string
+
+    const maybeTrigger = (priceStr: string, ts: string) => {
+      const price = Number.parseFloat(priceStr) || 0
+      if (priceAtLevelMatches(price, targetPrice, condition, tolerancePercent)) {
+        onTrigger({ price: priceStr, coin, timestamp: ts })
+      }
+    }
+
+    if (source === 'Stream') {
+      const filters = buildFiltersFromSpec('trades', { coin: [coin] })
+      const unsub = subscribe('trades', filters, (msg) => {
+        const events = msg.data?.events ?? []
+        if (!Array.isArray(events)) return
+        for (const ev of events) {
+          try {
+            const out = normalizeStreamEventToUnifiedOutputs('trades', ev, msg)
+            const price = out.price ?? '0'
+            const ts = out.timestamp ?? String(Date.now())
+            maybeTrigger(price, ts)
+          } catch (e) {
+            console.warn('[priceAtLevel] normalize trade failed:', e)
+          }
+        }
+      })
+      return unsub
+    }
+
+    const seconds = Math.max(0.5, Math.min(3600, Number(inputs.intervalSeconds) || 1))
+    const ms = Math.round(seconds * 1000)
+    const id = setInterval(async () => {
+      try {
+        const mids = await getAllMids()
+        const price = mids[coin] ?? mids[coin.toUpperCase()] ?? '0'
+        const ts = String(Date.now())
+        maybeTrigger(price, ts)
+      } catch (e) {
+        console.warn('[priceAtLevel] getAllMids failed:', e)
+      }
+    }, ms)
+    return () => clearInterval(id)
+  },
+})
+
 // ─── Live Token Prices (3 coins for Multigraph) ───────────
 
 registerBlock({
@@ -1279,43 +1411,34 @@ registerBlock({
   },
 })
 
-// ─── Price change % ─────────────────────────────────────────
+// ─── Price change % (single input, built-in buffer) ──────────
 
 registerBlock({
   type: 'priceChange',
   label: 'Price change %',
   description:
-    'Compute percent change from previous to current price. Connect Live Token Price (or current) and a Constant (or previous). Use with General Comparator to alert when move exceeds a threshold.',
+    'Connect one price (e.g. Live Token Price). Computes % change from the previous value it saw; stores the last value internally so you only need one input. Use with General Comparator to alert when move exceeds a threshold.',
   category: 'filter',
   color: 'yellow',
   icon: 'percent',
   inputs: [
     {
-      name: 'currentPrice',
-      label: 'Current price',
+      name: 'value',
+      label: 'Price',
       type: 'number',
-      placeholder: 'Connect or enter',
-      allowVariable: true,
-      accepts: ['number', 'string'],
-    },
-    {
-      name: 'previousPrice',
-      label: 'Previous price',
-      type: 'number',
-      placeholder: 'Connect or enter',
+      placeholder: 'Connect current price',
       allowVariable: true,
       accepts: ['number', 'string'],
     },
   ],
   outputs: [
     { name: 'percentChange', label: 'Percent change', type: 'string' },
+    { name: 'previousPrice', label: 'Previous price', type: 'string' },
   ],
-  run: async (inputs): Promise<Record<string, string>> => {
-    const percentChange = priceChangePercent(
-      inputs.currentPrice ?? '',
-      inputs.previousPrice ?? '',
-    )
-    return { percentChange }
+  run: async (inputs, context): Promise<Record<string, string>> => {
+    const nodeId = context?.nodeId ?? ''
+    const { percentChange, previousPrice } = priceChangeWithBuffer(nodeId, inputs.value ?? '')
+    return { percentChange, previousPrice }
   },
 })
 
@@ -1383,26 +1506,26 @@ registerBlock({
 
 // ─── Utility Blocks ──────────────────────────────────────
 
-// registerBlock({
-//   type: 'webhook',
-//   label: 'Webhook',
-//   description: 'Send data to an external URL',
-//   category: 'action',
-//   color: 'yellow',
-//   icon: 'globe',
-//   inputs: [
-//     { name: 'url', label: 'Webhook URL', type: 'text', placeholder: 'https://...', allowVariable: true },
-//     { name: 'method', label: 'Method', type: 'select', options: ['POST', 'GET', 'PUT', 'DELETE'], defaultValue: 'POST' },
-//     { name: 'useCorsProxy', label: 'Use CORS proxy (for browser)', type: 'toggle', defaultValue: 'true' },
-//     { name: 'headers', label: 'Headers', type: 'keyValue', defaultValue: '[]' },
-//     { name: 'body', label: 'Request Body', type: 'textarea', placeholder: '{"key": "value"}', rows: 3, allowVariable: true },
-//   ],
-//   outputs: [
-//     { name: 'status', label: 'Status Code' },
-//     { name: 'response', label: 'Response Body' },
-//   ],
-//   run: async (inputs) => webhook(inputs),
-// })
+registerBlock({
+  type: 'webhook',
+  label: 'Webhook',
+  description: 'Send data to an external URL (POST, GET, PUT, or DELETE). Use for alerts or external automation.',
+  category: 'action',
+  color: 'yellow',
+  icon: 'globe',
+  inputs: [
+    { name: 'url', label: 'Webhook URL', type: 'text', placeholder: 'https://...', allowVariable: true },
+    { name: 'method', label: 'Method', type: 'select', options: ['POST', 'GET', 'PUT', 'DELETE'], defaultValue: 'POST' },
+    { name: 'useCorsProxy', label: 'Use CORS proxy (for browser)', type: 'toggle', defaultValue: 'true' },
+    { name: 'headers', label: 'Headers', type: 'keyValue', defaultValue: '[]' },
+    { name: 'body', label: 'Request Body', type: 'textarea', placeholder: '{"key": "value"}', rows: 3, allowVariable: true },
+  ],
+  outputs: [
+    { name: 'status', label: 'Status Code', type: 'string' },
+    { name: 'response', label: 'Response Body', type: 'string' },
+  ],
+  run: async (inputs) => webhook(inputs),
+})
 
 registerBlock({
   type: 'timeLoop',
@@ -1499,28 +1622,104 @@ registerBlock({
 //   subscribe: (inputs, onTrigger) => subscribeToTransfer(inputs, onTrigger),
 // })
 
+// ─── Telegram message trigger (get updates) ───────────────────────────────
+
+registerBlock({
+  type: 'telegramMessageTrigger',
+  label: 'Get Telegram',
+  description: 'Trigger when your bot receives a message. Polls the Telegram Bot API for new messages. Connect to actions (e.g. Send Telegram) or filters.',
+  category: 'trigger',
+  color: 'blue',
+  icon: 'messageSquare',
+  inputs: [
+    { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
+    { name: 'chatIdFilter', label: 'Chat ID filter (optional)', type: 'text', placeholder: 'Only trigger for this chat; leave empty for all' },
+    { name: 'pollIntervalSeconds', label: 'Poll interval (seconds)', type: 'number', placeholder: '5', defaultValue: '5', min: 2, max: 60 },
+    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
+  ],
+  outputs: [
+    { name: 'messageText', label: 'Message text', type: 'string' },
+    { name: 'chatId', label: 'Chat ID', type: 'string' },
+    { name: 'fromId', label: 'From user ID', type: 'string' },
+    { name: 'username', label: 'Username', type: 'string' },
+    { name: 'firstName', label: 'First name', type: 'string' },
+    { name: 'updateId', label: 'Update ID', type: 'string' },
+    { name: 'messageId', label: 'Message ID', type: 'string' },
+    { name: 'date', label: 'Date (Unix)', type: 'string' },
+  ],
+  run: async () => ({
+    messageText: '',
+    chatId: '',
+    fromId: '',
+    username: '',
+    firstName: '',
+    updateId: '',
+    messageId: '',
+    date: '',
+  }),
+  subscribe: (inputs, onTrigger) => {
+    const botToken = (inputs.botToken ?? '').trim()
+    if (!botToken) {
+      console.warn('[Get Telegram] Bot token is required')
+      return () => {}
+    }
+    return startTelegramMessagePolling(
+      botToken,
+      {
+        useCorsProxy: inputs.useCorsProxy !== 'false',
+        chatIdFilter: (inputs.chatIdFilter ?? '').trim() || undefined,
+        pollIntervalSeconds: Math.max(2, Math.min(60, Number(inputs.pollIntervalSeconds) || 5)),
+      },
+      onTrigger,
+    )
+  },
+})
+
 // ─── Send Notification: Telegram ─────────────────────────────────────────
-// registerBlock({
-//   type: 'sendTelegram',
-//   label: 'Send Telegram',
-//   description: 'Send a message via Telegram Bot API. Create a bot with @BotFather and get chat ID from @userinfobot.',
-//   category: 'action',
-//   color: 'blue',
-//   icon: 'messageSquare',
-//   inputs: [
-//     { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
-//     { name: 'chatId', label: 'Chat ID', type: 'text', placeholder: 'e.g. -1001234567890' },
-//     { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
-//     { name: 'parseMode', label: 'Parse mode', type: 'select', options: ['HTML', 'Markdown', 'MarkdownV2'], defaultValue: 'HTML' },
-//     { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
-//   ],
-//   outputs: [
-//     { name: 'ok', label: 'OK', type: 'boolean' },
-//     { name: 'status', label: 'Status', type: 'string' },
-//     { name: 'response', label: 'Response', type: 'json' },
-//   ],
-//   run: async (inputs) => sendTelegram(inputs),
-// })
+
+registerBlock({
+  type: 'sendTelegram',
+  label: 'Send Telegram',
+  description: 'Send a message via Telegram Bot API. Create a bot with @BotFather and get chat ID from @userinfobot.',
+  category: 'action',
+  color: 'blue',
+  icon: 'messageSquare',
+  inputs: [
+    { name: 'botToken', label: 'Bot Token', type: 'text', placeholder: '123:ABC...' },
+    { name: 'chatId', label: 'Chat ID', type: 'text', placeholder: 'e.g. -1001234567890' },
+    { name: 'message', label: 'Message', type: 'textarea', rows: 3, allowVariable: true },
+    { name: 'parseMode', label: 'Parse mode', type: 'select', options: ['HTML', 'Markdown', 'MarkdownV2'], defaultValue: 'HTML' },
+    { name: 'useCorsProxy', label: 'Use CORS proxy', type: 'toggle', defaultValue: 'true' },
+  ],
+  outputs: [
+    { name: 'ok', label: 'OK', type: 'boolean' },
+    { name: 'status', label: 'Status', type: 'string' },
+    { name: 'response', label: 'Response', type: 'json' },
+  ],
+  run: async (inputs) => sendTelegram(inputs),
+})
+
+// ─── Get wallet balance ──────────────────────────────────────────────────
+
+registerBlock({
+  type: 'getWalletBalance',
+  label: 'Get wallet balance',
+  description: 'Return native (ETH) or ERC20 token balance for an address. Leave wallet empty to use the connected wallet.',
+  category: 'action',
+  color: 'blue',
+  icon: 'wallet',
+  inputs: [
+    { name: 'wallet', label: 'Wallet address', type: 'address', placeholder: '0x... or leave empty for connected', allowVariable: true },
+    { name: 'token', label: 'Token (optional)', type: 'address', placeholder: 'Leave empty for native ETH' },
+    { name: 'chainId', label: 'Chain ID', type: 'number', placeholder: '1', defaultValue: '1' },
+    { name: 'rpcUrl', label: 'RPC URL (optional)', type: 'text', placeholder: 'Leave empty for default' },
+  ],
+  outputs: [
+    { name: 'balance', label: 'Balance (raw)', type: 'string' },
+    { name: 'balanceFormatted', label: 'Balance (formatted)', type: 'string' },
+  ],
+  run: async (inputs) => getWalletBalance(inputs),
+})
 
 // ─── Send Notification: Discord ───────────────────────────────────────────
 // registerBlock({
