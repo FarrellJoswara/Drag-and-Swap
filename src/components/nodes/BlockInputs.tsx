@@ -107,6 +107,10 @@ export interface BlockInputProps {
   onSourceOutputChange?: (outputName: string) => void
   /** When true, do not show "From X:" above the dropdown (e.g. when "Connected to" is at node top) */
   hideSourceLabel?: boolean
+  /** Optional suffix shown to the right of the input (e.g. "ETH", "USD") */
+  suffix?: string
+  /** When provided, suffix becomes clickable to toggle (e.g. Token ↔ USD) */
+  onSuffixClick?: () => void
 }
 
 function TextInput({ field, value = '', onChange, color }: BlockInputProps) {
@@ -127,23 +131,44 @@ function TextInput({ field, value = '', onChange, color }: BlockInputProps) {
   )
 }
 
-function NumberInput({ field, value = '', onChange, color }: BlockInputProps) {
+function NumberInput({ field, value = '', onChange, color, suffix, onSuffixClick }: BlockInputProps) {
   const focus = focusColorClass[color]
+  const suffixEl = suffix ? (
+    onSuffixClick ? (
+      <button
+        type="button"
+        onClick={onSuffixClick}
+        className="nodrag flex-shrink-0 text-[10px] font-medium text-slate-400 hover:text-slate-200 px-2 py-1 rounded border border-slate-700 bg-slate-800/50 hover:border-slate-600 hover:bg-slate-700/50 transition-colors cursor-pointer"
+      >
+        {suffix}
+      </button>
+    ) : (
+      <span className="flex-shrink-0 text-[10px] font-medium text-slate-500 px-2 py-1 rounded border border-slate-700 bg-slate-800/50">
+        {suffix}
+      </span>
+    )
+  ) : null
   return (
     <div className="flex flex-col gap-1">
       <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
-      <DropZone value={value} onChange={onChange}>
-        <input
-          type="number"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={field.placeholder}
-          min={field.min}
-          max={field.max}
-          step={field.step}
-          className={`${baseInput(focus)} px-2.5 py-1.5`}
-        />
-      </DropZone>
+      <div className="flex items-center gap-1.5">
+        <div className="flex-1 min-w-0">
+          <DropZone value={value} onChange={onChange}>
+            <input
+            type="text"
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={field.placeholder}
+            min={field.min}
+            max={field.max}
+            step={field.step}
+            className={`${baseInput(focus)} px-2.5 py-1.5 w-full`}
+          />
+          </DropZone>
+        </div>
+        {suffixEl}
+      </div>
     </div>
   )
 }

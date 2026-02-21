@@ -35,11 +35,20 @@ export type SwapTx = {
   gasLimit?: string
 }
 
+export type SignTypedDataParams = {
+  domain: { name?: string; version?: string; chainId?: number; verifyingContract?: `0x${string}` }
+  types: Record<string, Array<{ name: string; type: string }>>
+  primaryType: string
+  message: Record<string, unknown>
+}
+
 export type RunContext = {
   /** Connected wallet address (e.g. from Privy). Used when swap block's Wallet Address is empty. */
   walletAddress?: string | null
   /** Send a transaction (e.g. Uniswap swap). When provided, swap block will sign and broadcast. */
   sendTransaction?: ((tx: SwapTx) => Promise<string>) | null
+  /** Sign EIP-712 typed data (e.g. UniswapX permit). When provided, swap block can submit gasless orders. */
+  signTypedData?: ((params: SignTypedDataParams) => Promise<string>) | null
 }
 
 export type RunOptions = {
@@ -134,12 +143,9 @@ export async function runDownstreamGraph(
       inputs[field.name] = resolveVariables(val, outputs)
     }
 
-    // Swap block: use connected wallet when Wallet Address is empty or invalid
-    if (def.type === 'swap' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
-      const swapper = (inputs.swapper ?? '').trim()
-      if (!swapper || !ADDRESS_REGEX.test(swapper)) {
-        inputs.swapper = context.walletAddress
-      }
+    // Swap and Get Quote blocks: always use connected wallet (no explicit wallet input)
+    if ((def.type === 'swap' || def.type === 'getQuote') && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress)) {
+      inputs.swapper = context.walletAddress
     }
 
     try {

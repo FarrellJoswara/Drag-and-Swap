@@ -15,6 +15,8 @@ import { runDownstreamGraph } from '../../lib/runAgent'
 import { useToast } from '../ui/Toast'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
 import { useSendTransaction } from '../../hooks/useSendTransaction'
+import { useSignTypedData } from '../../hooks/useSignTypedData'
+import { getChainsForToken } from '../../services/uniswap'
 import { useAgentId } from '../../contexts/AgentIdContext'
 import { useDisplayValue } from '../../contexts/DisplayValueContext'
 
@@ -43,6 +45,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   const { toast } = useToast()
   const walletAddress = useWalletAddress()
   const sendTransaction = useSendTransaction()
+  const signTypedData = useSignTypedData()
   const agentId = useAgentId()
   const { getDisplayValue, setDisplayValue, clearDisplayValue } = useDisplayValue()
 
@@ -108,16 +111,22 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
 
   const updateInput = useCallback(
     (name: string, value: string) => {
-      setInputs((prev) => ({ ...prev, [name]: value }))
+      const updates: Record<string, string> = { [name]: value }
+      if ((blockType === 'swap' || blockType === 'getQuote') && (name === 'fromToken' || name === 'toToken')) {
+        const chains = getChainsForToken(value)
+        const currentChainId = String(inputs.chainId ?? '1')
+        if (chains.length > 0 && !chains.includes(Number(currentChainId))) {
+          updates.chainId = String(chains[0])
+        }
+      }
+      setInputs((prev) => ({ ...prev, ...updates }))
       setNodes((nodes) =>
         nodes.map((n) =>
-          n.id === id
-            ? { ...n, data: { ...n.data, [name]: value } }
-            : n,
+          n.id === id ? { ...n, data: { ...n.data, ...updates } } : n,
         ),
       )
     },
-    [id, setNodes],
+    [id, setNodes, blockType, inputs.chainId],
   )
 
   const Icon = getBlockIcon(definition.icon)
@@ -263,7 +272,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
         model,
         id,
         { triggered: 'true' },
-        { walletAddress: walletAddress ?? undefined, sendTransaction: sendTransaction ?? undefined },
+        { walletAddress: walletAddress ?? undefined, sendTransaction: sendTransaction ?? undefined, signTypedData: signTypedData ?? undefined },
         runOptions,
       )
       toast('Agent ran successfully', 'success')
@@ -271,16 +280,17 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       console.error('[manualTrigger] Run failed:', err)
       toast(err instanceof Error ? err.message : 'Run failed', 'error')
     }
-  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, agentId, setDisplayValue])
+  }, [id, getNodes, getEdges, toast, walletAddress, sendTransaction, signTypedData, agentId, setDisplayValue])
 
   const mainInputNames = definition.sidePanel
     ? new Set(definition.sidePanel.mainInputNames)
     : null
+  const hiddenInputNames = (blockType === 'swap' || blockType === 'getQuote') ? new Set(['amountDenomination']) : new Set<string>()
   const mainInputs = mainInputNames
-    ? definition.inputs.filter((f) => mainInputNames.has(f.name))
+    ? definition.inputs.filter((f) => mainInputNames.has(f.name) && !hiddenInputNames.has(f.name))
     : []
   const panelInputs = mainInputNames
-    ? definition.inputs.filter((f) => !mainInputNames.has(f.name))
+    ? definition.inputs.filter((f) => !mainInputNames.has(f.name) && !hiddenInputNames.has(f.name))
     : []
 
   const renderOutputsSection = () =>
@@ -320,6 +330,20 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
       </div>
     ) : null
 
+  const isSwapOrQuote = blockType === 'swap' || blockType === 'getQuote'
+  const amountDenomination = (inputs.amountDenomination ?? 'Token').toUpperCase()
+  const amountSuffix =
+    isSwapOrQuote && amountDenomination === 'USD'
+      ? 'USD'
+      : isSwapOrQuote
+        ? ((inputs.swapType ?? 'EXACT_INPUT').toUpperCase() === 'EXACT_OUTPUT'
+            ? inputs.toToken
+            : inputs.fromToken) || 'ETH'
+        : undefined
+  const onAmountSuffixClick = isSwapOrQuote
+    ? () => updateInput('amountDenomination', amountDenomination === 'USD' ? 'Token' : 'USD')
+    : undefined
+
   const nodeContent = definition.sidePanel ? (
     <SideNode
       mainContent={
@@ -333,6 +357,11 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
           width={blockType === 'streamDisplay' ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220) : undefined}
         >
           <div className="max-h-[320px] overflow-y-auto overflow-x-hidden flex flex-col gap-2 overscroll-contain">
+            {isSwapOrQuote && !walletAddress && (
+              <div className="px-2.5 py-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-400/90 text-[11px]">
+                Wallet must be connected. Sign in to execute swaps.
+              </div>
+            )}
             {mainInputs.map((field) => (
               <BlockInput
                 key={field.name}
@@ -347,6 +376,8 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
                     : undefined
                 }
                 hideSourceLabel={connectedSourceLabels.length > 0}
+                suffix={field.name === 'amount' ? amountSuffix : undefined}
+                onSuffixClick={field.name === 'amount' ? onAmountSuffixClick : undefined}
               />
             ))}
             {renderOutputsSection()}

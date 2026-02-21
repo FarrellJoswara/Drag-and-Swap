@@ -6,6 +6,7 @@ import { useAgents } from './contexts/AgentsContext'
 import { useActiveAgentRunners } from './hooks/useActiveAgentRunners'
 import { useWalletAddress } from './hooks/useWalletAddress'
 import { useSendTransaction } from './hooks/useSendTransaction'
+import { useSignTypedData } from './hooks/useSignTypedData'
 import { DisplayValueProvider } from './contexts/DisplayValueContext'
 import { CurrentFlowProvider } from './contexts/CurrentFlowContext'
 
@@ -13,9 +14,10 @@ function AgentRunners() {
   const { agents } = useAgents()
   const walletAddress = useWalletAddress()
   const sendTransaction = useSendTransaction()
+  const signTypedData = useSignTypedData()
   useActiveAgentRunners(agents, (payload) => {
     console.log('[Agent trigger]', payload)
-  }, { walletAddress: walletAddress ?? undefined, sendTransaction: sendTransaction ?? undefined })
+  }, { walletAddress: walletAddress ?? undefined, sendTransaction: sendTransaction ?? undefined, signTypedData: signTypedData ?? undefined })
   return null
 }
 

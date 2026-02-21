@@ -34,7 +34,7 @@ import {
   subscribe,
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
-import { swap } from '../services/uniswap'
+import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
 import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
 // ─── Hyperliquid Blocks (QuickNode Data Streams) ───────────
@@ -439,17 +439,21 @@ registerBlock({
 registerBlock({
   type: 'swap',
   label: 'Swap',
-  description: 'Execute a token swap on Uniswap V3',
+  description: 'Execute a token swap via Uniswap Trading API',
   category: 'action',
   service: 'uniswap',
   color: 'rose',
   icon: 'zap',
+  sidePanel: { label: 'Advanced', mainInputNames: ['fromToken', 'toToken', 'amount', 'chainId'] },
   inputs: [
     { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
     { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
     { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
     { name: 'chainId', label: 'Chain', type: 'select', options: ['1', '10', '8453', '42161', '137'], defaultValue: '1' },
-    { name: 'swapper', label: 'Wallet', type: 'walletAddress' },
+    { name: 'amountDenomination', label: 'Amount in', type: 'select', options: ['Token', 'USD'], defaultValue: 'Token' },
+    { name: 'swapType', label: 'Swap Type', type: 'select', options: ['EXACT_INPUT', 'EXACT_OUTPUT'], defaultValue: 'EXACT_INPUT' },
+    { name: 'protocols', label: 'Protocols', type: 'select', options: ['V2,V3,V4', 'V2', 'V3', 'V4'], defaultValue: 'V2,V3,V4' },
+    { name: 'routingPreference', label: 'Routing', type: 'select', options: ['BEST_PRICE', 'FASTEST', 'CLASSIC'], defaultValue: 'BEST_PRICE' },
   ],
   outputs: [
     { name: 'txHash', label: 'Transaction Hash' },
@@ -457,6 +461,48 @@ registerBlock({
     { name: 'gasUsed', label: 'Gas Used' },
   ],
   run: async (inputs, context) => swap(inputs, context),
+})
+
+registerBlock({
+  type: 'getQuote',
+  label: 'Get Quote',
+  description: 'Fetch a swap quote without executing. Use with Value Filter to swap only when output meets threshold.',
+  category: 'filter',
+  service: 'uniswap',
+  color: 'rose',
+  icon: 'barChart',
+  sidePanel: { label: 'Advanced', mainInputNames: ['fromToken', 'toToken', 'amount', 'chainId'] },
+  inputs: [
+    { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
+    { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
+    { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
+    { name: 'chainId', label: 'Chain', type: 'select', options: ['1', '10', '8453', '42161', '137'], defaultValue: '1' },
+    { name: 'amountDenomination', label: 'Amount in', type: 'select', options: ['Token', 'USD'], defaultValue: 'Token' },
+    { name: 'swapType', label: 'Swap Type', type: 'select', options: ['EXACT_INPUT', 'EXACT_OUTPUT'], defaultValue: 'EXACT_INPUT' },
+    { name: 'protocols', label: 'Protocols', type: 'select', options: ['V2,V3,V4', 'V2', 'V3', 'V4'], defaultValue: 'V2,V3,V4' },
+    { name: 'routingPreference', label: 'Routing', type: 'select', options: ['BEST_PRICE', 'FASTEST', 'CLASSIC'], defaultValue: 'BEST_PRICE' },
+  ],
+  outputs: [
+    { name: 'amountOut', label: 'Amount Out (raw)', type: 'string' },
+    { name: 'gasFeeUSD', label: 'Gas Fee (USD)', type: 'string' },
+    { name: 'routing', label: 'Routing Type', type: 'string' },
+    { name: 'quote', label: 'Quote (JSON)', type: 'json' },
+  ],
+  run: async (inputs) => {
+    const params = await blockInputsToApiParams(inputs)
+    const res = await getQuote(params)
+    if (res?.errorCode) throw new Error(res.detail ?? `Quote failed: ${res.errorCode}`)
+    const quote = res?.quote ?? res
+    const outputAmount = quote?.output?.amount ?? quote?.outputAmount ?? ''
+    const gasFeeUSD = quote?.gasFeeUSD ?? res?.gasFeeUSD ?? ''
+    const routing = res?.routing ?? ''
+    return {
+      amountOut: outputAmount,
+      gasFeeUSD: String(gasFeeUSD),
+      routing: String(routing),
+      quote: JSON.stringify(res),
+    }
+  },
 })
 
 // ─── Filter Blocks ───────────────────────────────────────
