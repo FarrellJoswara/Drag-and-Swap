@@ -85,6 +85,7 @@ import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
 import {
   // webhook,
   timeLoop,
+  intervalToMs,
   generalComparator,
   delay,
   // numericRangeFilter,
@@ -987,7 +988,7 @@ registerBlock({
   type: 'getQuote',
   label: 'Get Quote',
   description: 'Fetch a swap quote without executing. Use with Value Filter to swap only when output meets threshold.',
-  category: 'filter',
+  category: 'action',
   service: 'uniswap',
   color: 'rose',
   icon: 'barChart',
@@ -1047,21 +1048,30 @@ registerBlock({
 registerBlock({
   type: 'timeLoop',
   label: 'Time Loop',
-  description: 'Trigger every x seconds (interrupt-based)',
+  description: 'Trigger at a fixed interval (seconds, minutes, hours, days, etc.)',
   category: 'trigger',
   color: 'yellow',
   icon: 'clock',
   inputs: [
-    { name: 'seconds', label: 'Seconds', type: 'slider', min: 1, max: 300, step: 1, defaultValue: '10' },
+    { name: 'interval', label: 'Interval', type: 'number', placeholder: '10', defaultValue: '10' },
+    {
+      name: 'unit',
+      label: 'Unit',
+      type: 'select',
+      options: ['seconds', 'minutes', 'hours', 'days', 'weeks', 'months', 'years'],
+      defaultValue: 'seconds',
+    },
   ],
   outputs: [
     { name: 'elapsed', label: 'Time Elapsed' },
   ],
   run: async (inputs) => timeLoop(inputs),
   subscribe: (inputs, onTrigger) => {
-    const seconds = parseFloat(inputs.seconds || '10')
-    const ms = Math.max(1000, seconds * 1000)
-    const id = setInterval(() => onTrigger({ elapsed: `${seconds}s` }), ms)
+    const value = parseFloat(inputs.interval || '10')
+    const unit = inputs.unit || 'seconds'
+    const ms = Math.max(1000, intervalToMs(value, unit))
+    const label = `${value} ${unit}`
+    const id = setInterval(() => onTrigger({ elapsed: label }), ms)
     return () => clearInterval(id)
   },
 })

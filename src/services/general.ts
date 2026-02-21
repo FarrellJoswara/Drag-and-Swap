@@ -28,14 +28,30 @@ export async function webhook(inputs: Record<string, string>): Promise<Record<st
   return { status: String(res.status), response: text }
 }
 
+const TIME_UNIT_MS: Record<string, number> = {
+  seconds: 1000,
+  minutes: 60 * 1000,
+  hours: 60 * 60 * 1000,
+  days: 24 * 60 * 60 * 1000,
+  weeks: 7 * 24 * 60 * 60 * 1000,
+  months: 30 * 24 * 60 * 60 * 1000,
+  years: 365 * 24 * 60 * 60 * 1000,
+}
+
+export function intervalToMs(value: number, unit: string): number {
+  const mult = TIME_UNIT_MS[unit] ?? TIME_UNIT_MS.seconds
+  return value * mult
+}
+
 export async function timeLoop(inputs: Record<string, string>): Promise<{ elapsed: string }> {
-  const seconds = Number(inputs.seconds)
-  if (isNaN(seconds) || seconds <= 0) {
-    throw new Error('Invalid seconds value')
+  const value = Number(inputs.interval ?? inputs.seconds ?? '10')
+  const unit = inputs.unit || 'seconds'
+  if (isNaN(value) || value <= 0) {
+    throw new Error('Invalid interval value')
   }
-  const ms = seconds * 1000
+  const ms = intervalToMs(value, unit)
   await new Promise((r) => setTimeout(r, ms))
-  return { elapsed: `${seconds}s` }
+  return { elapsed: `${value} ${unit}` }
 }
 
 // ─── General Comparator ───────────────────────────────────────
