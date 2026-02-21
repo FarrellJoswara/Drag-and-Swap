@@ -23,6 +23,7 @@ import Topbar from './components/ui/Topbar'
 import ContextMenu from './components/ui/ContextMenu'
 import MobileWarning from './components/ui/MobileWarning'
 import { useToast } from './components/ui/Toast'
+import AllowTradeOnBehalfModal from './components/ui/AllowTradeOnBehalfModal'
 import { useUndoRedo } from './hooks/useUndoRedo'
 import { useWalletAddress } from './hooks/useWalletAddress'
 import { useAgents } from './contexts/AgentsContext'
@@ -294,6 +295,7 @@ export default function App() {
   const { setCurrentFlow } = useCurrentFlow()
   const { takeSnapshot, undo, redo, canUndo, canRedo } = useUndoRedo(nodes, edges)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [showAllowTradeModal, setShowAllowTradeModal] = useState(false)
   const clipboard = useRef<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] })
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
@@ -496,12 +498,9 @@ export default function App() {
 
       setNodes((nds) => [...nds, newNode])
 
-      // Warn when adding the "Trade on my behalf" block (uses connected wallet)
+      // Popup to allow app to trade on behalf when adding "Trade on my behalf" block
       if (blockType === 'swapOnBehalf') {
-        toast(
-          'This block executes swaps using your connected wallet. Only use in agents you trust.',
-          'warning',
-        )
+        setShowAllowTradeModal(true)
       }
     },
     [setNodes, takeSnapshot, toast],
@@ -839,6 +838,11 @@ export default function App() {
                 onDelete={handleDeleteNode}
               />
             )}
+
+            <AllowTradeOnBehalfModal
+              isOpen={showAllowTradeModal}
+              onClose={() => setShowAllowTradeModal(false)}
+            />
           </div>
         </div>
       </div>

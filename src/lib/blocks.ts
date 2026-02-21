@@ -1732,11 +1732,8 @@ registerBlock({
 
 // ─── Telegram message trigger (get updates) ───────────────────────────────
 
-const DEFAULT_TELEGRAM_BOT_TOKEN = '8439123450:AAGze8HrjqYlF-Gsfxpa-LC9h09Rz42_Oe0'
-
 function getAppTelegramBotToken(): string {
-  const env = (import.meta.env.VITE_TELEGRAM_BOT_TOKEN as string | undefined ?? '').trim()
-  return env || DEFAULT_TELEGRAM_BOT_TOKEN
+  return (import.meta.env.VITE_TELEGRAM_BOT_TOKEN as string | undefined ?? '').trim()
 }
 
 registerBlock({

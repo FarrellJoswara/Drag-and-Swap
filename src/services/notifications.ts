@@ -92,40 +92,100 @@ export async function sendDiscord(inputs: Record<string, string>): Promise<Recor
 
 // ─── Telegram getUpdates (for message trigger) ─────────────────────────────
 
+/** One getUpdates poll per bot token to avoid Telegram 409 (only one poll allowed per bot). */
+const telegramOffsetByToken: Record<string, number> = {}
+/** Global "request in flight" per token so we never start a new request until the previous one finishes (even after effect cleanup/re-subscribe). */
+const telegramRequestInFlight: Record<string, boolean> = {}
+const TELEGRAM_409_MSG =
+  'Telegram 409: only one getUpdates connection allowed per bot. Close other tabs, or remove the bot webhook (BotFather / setWebhook).'
+
+type TelegramListener = {
+  chatIdFilter: string
+  fromHandleFilter: string
+  onMessage: (out: Record<string, string>) => void
+}
+type TelegramPollerState = {
+  token: string
+  useCorsProxy: boolean
+  intervalMs: number
+  timeoutId: ReturnType<typeof setTimeout> | null
+  listeners: Set<TelegramListener>
+  initialAckDone: boolean
+  cancelled: boolean
+}
+const telegramPollers: Record<string, TelegramPollerState> = {}
+
 /**
  * Fetch pending updates from Telegram Bot API. Used by the Telegram message trigger.
- * Uses server proxy when available (no CORS); falls back to CORS proxy for local dev.
+ * Uses server proxy when available (no CORS). Does NOT fall back to CORS on 409 (would double the conflict).
  */
 async function getTelegramUpdates(
   botToken: string,
   offset: number,
   useCorsProxy: boolean,
-): Promise<{ updates: TelegramMessageUpdate[]; nextOffset: number }> {
+): Promise<{ updates: TelegramMessageUpdate[]; nextOffset: number; is409?: boolean }> {
   if (!botToken.trim()) return { updates: [], nextOffset: offset }
   const token = botToken.trim()
 
-  // Server proxy (Vercel) or Vite plugin (local dev) — bypasses CORS
   const apiRes = await fetch('/api/telegram-get-updates', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ botToken: token, offset }),
   }).catch(() => null)
 
+  const status = apiRes?.status
   const isJson = apiRes?.headers.get('content-type')?.includes('application/json')
-  let data: { ok?: boolean; result?: unknown[] } = {}
-  if (apiRes?.ok && isJson) {
-    data = (await apiRes.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }
-  } else {
-    // Fallback: CORS proxy (for local dev when /api is not available)
-    const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&limit=100&timeout=50`
-    const target = useCorsProxy ? withCorsProxy(url) : url
-    const res = await fetch(target, { method: 'GET' })
-    data = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[] }
+  let data: { ok?: boolean; result?: unknown[]; description?: string } = {}
+
+  if (apiRes != null && isJson) {
+    data = (await apiRes.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[]; description?: string }
+  }
+
+  if (status === 409 || data?.description?.toLowerCase().includes('conflict')) {
+    console.warn('[Telegram trigger]', TELEGRAM_409_MSG)
+    return { updates: [], nextOffset: offset, is409: true }
+  }
+
+  if (apiRes?.ok && isJson && data?.ok && Array.isArray(data.result)) {
+    const updates: TelegramMessageUpdate[] = []
+    let nextOffset = offset
+    for (const u of data.result) {
+      const upd = u as { update_id?: number; message?: { text?: string; message_id?: number; from?: { id?: number; username?: string; first_name?: string }; chat?: { id?: number }; date?: number } }
+      if (upd.update_id != null) nextOffset = Math.max(nextOffset, upd.update_id + 1)
+      const msg = upd.message
+      if (!msg || typeof msg.text !== 'string') continue
+      const from = msg.from ?? {}
+      const chat = msg.chat ?? {}
+      updates.push({
+        messageText: msg.text,
+        chatId: String(chat.id ?? ''),
+        fromId: String(from.id ?? ''),
+        username: String(from.username ?? ''),
+        firstName: String(from.first_name ?? ''),
+        updateId: String(upd.update_id ?? ''),
+        messageId: String(msg.message_id ?? ''),
+        date: String(msg.date ?? ''),
+      })
+    }
+    return { updates, nextOffset }
+  }
+
+  if (apiRes?.ok) {
+    return { updates: [], nextOffset: offset }
+  }
+
+  const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&limit=100&timeout=30`
+  const target = useCorsProxy ? withCorsProxy(url) : url
+  const res = await fetch(target, { method: 'GET' })
+  const fallbackData = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: unknown[]; description?: string }
+  if (res.status === 409 || fallbackData?.description?.toLowerCase().includes('conflict')) {
+    console.warn('[Telegram trigger]', TELEGRAM_409_MSG)
+    return { updates: [], nextOffset: offset, is409: true }
   }
   const updates: TelegramMessageUpdate[] = []
   let nextOffset = offset
-  if (data?.ok && Array.isArray(data.result)) {
-    for (const u of data.result) {
+  if (fallbackData?.ok && Array.isArray(fallbackData.result)) {
+    for (const u of fallbackData.result) {
       const upd = u as { update_id?: number; message?: { text?: string; message_id?: number; from?: { id?: number; username?: string; first_name?: string }; chat?: { id?: number }; date?: number } }
       if (upd.update_id != null) nextOffset = Math.max(nextOffset, upd.update_id + 1)
       const msg = upd.message
@@ -152,72 +212,106 @@ function normalizeHandle(h: string): string {
   return (h || '').trim().replace(/^@/, '').toLowerCase()
 }
 
+function scheduleNextPoll(key: string, state: TelegramPollerState) {
+  if (state.cancelled || state.listeners.size === 0 || state.timeoutId != null) return
+  state.timeoutId = setTimeout(() => {
+    state.timeoutId = null
+    runTelegramPoller(key, state)
+  }, state.intervalMs)
+}
+
+function runTelegramPoller(key: string, state: TelegramPollerState) {
+  if (state.cancelled || state.listeners.size === 0) return
+  if (telegramRequestInFlight[key]) return
+  telegramRequestInFlight[key] = true
+  const offset = telegramOffsetByToken[key] ?? 0
+  getTelegramUpdates(state.token, offset, state.useCorsProxy)
+    .then(({ updates, nextOffset, is409 }) => {
+      if (state.cancelled) return
+      telegramOffsetByToken[key] = nextOffset
+      if (!state.initialAckDone) {
+        state.initialAckDone = true
+        return
+      }
+      if (is409) return
+      for (const u of updates) {
+        for (const listener of state.listeners) {
+          if (listener.chatIdFilter && u.chatId !== listener.chatIdFilter) continue
+          if (listener.fromHandleFilter && normalizeHandle(u.username) !== listener.fromHandleFilter) continue
+          try {
+            listener.onMessage({
+              messageText: u.messageText,
+              chatId: u.chatId,
+              fromId: u.fromId,
+              username: u.username,
+              firstName: u.firstName,
+              updateId: u.updateId,
+              messageId: u.messageId,
+              date: u.date,
+            })
+          } catch (e) {
+            console.warn('[Telegram trigger] onMessage failed for update', u.updateId, e)
+          }
+        }
+      }
+    })
+    .catch((e) => console.warn('[Telegram trigger] getUpdates failed:', e))
+    .finally(() => {
+      telegramRequestInFlight[key] = false
+      if (!state.cancelled && state.listeners.size > 0) scheduleNextPoll(key, state)
+    })
+}
+
 /**
  * Start polling Telegram getUpdates and call onMessage for each new message.
- * Skips all messages that were already pending when polling started (only fires for new messages).
- * Returns a cleanup function to stop polling.
+ * Shares a single getUpdates loop per bot token; never starts a new request until the previous one finishes (avoids 409).
+ * Returns a cleanup function to stop receiving (and stop the shared poll if no listeners left).
  */
 export function startTelegramMessagePolling(
   botToken: string,
   options: { useCorsProxy?: boolean; chatIdFilter?: string; fromHandleFilter?: string; pollIntervalSeconds?: number },
   onMessage: (out: Record<string, string>) => void,
 ): () => void {
+  const token = (botToken ?? '').trim()
+  if (!token) {
+    console.warn('[Telegram trigger] No bot token; add VITE_TELEGRAM_BOT_TOKEN to .env.local')
+    return () => {}
+  }
+
   const useCorsProxy = options.useCorsProxy !== false
   const chatIdFilter = (options.chatIdFilter ?? '').trim()
   const fromHandleFilter = normalizeHandle(options.fromHandleFilter ?? '')
   const intervalMs = Math.max(2000, Math.min(60000, (options.pollIntervalSeconds ?? 5) * 1000))
-  let offset = 0
-  let pollInProgress = false
-  let initialAckDone = false
+  const key = token
 
-  const doPoll = async (skipFiring = false) => {
-    if (pollInProgress) return
-    pollInProgress = true
-    try {
-      const { updates, nextOffset } = await getTelegramUpdates(botToken, offset, useCorsProxy)
-      offset = nextOffset
-      if (skipFiring) {
-        initialAckDone = true
-        return
-      }
-      if (!initialAckDone) return
-      for (const u of updates) {
-        if (chatIdFilter && u.chatId !== chatIdFilter) continue
-        if (fromHandleFilter && normalizeHandle(u.username) !== fromHandleFilter) continue
-        try {
-          onMessage({
-            messageText: u.messageText,
-            chatId: u.chatId,
-            fromId: u.fromId,
-            username: u.username,
-            firstName: u.firstName,
-            updateId: u.updateId,
-            messageId: u.messageId,
-            date: u.date,
-          })
-        } catch (e) {
-          console.warn('[Telegram trigger] onMessage failed for update', u.updateId, e)
-        }
-      }
-    } catch (e) {
-      console.warn('[Telegram trigger] getUpdates failed:', e)
-    } finally {
-      pollInProgress = false
+  if (!telegramPollers[key]) {
+    telegramPollers[key] = {
+      token,
+      useCorsProxy,
+      intervalMs,
+      timeoutId: null,
+      listeners: new Set(),
+      initialAckDone: false,
+      cancelled: false,
     }
   }
+  const state = telegramPollers[key]
+  const listener: TelegramListener = { chatIdFilter, fromHandleFilter, onMessage }
+  state.listeners.add(listener)
 
-  // Initial ack: consume all pending (old) updates without firing, so we only trigger for new messages
-  let intervalId: ReturnType<typeof setInterval> | null = null
-  let cancelled = false
-  const run = async () => {
-    await doPoll(true)
-    if (cancelled) return
-    intervalId = setInterval(() => doPoll(false), intervalMs)
-    doPoll(false)
+  if (state.timeoutId == null && !telegramRequestInFlight[key]) {
+    runTelegramPoller(key, state)
   }
-  run()
+
   return () => {
-    cancelled = true
-    if (intervalId) clearInterval(intervalId)
+    state.listeners.delete(listener)
+    if (state.listeners.size === 0) {
+      state.cancelled = true
+      if (state.timeoutId != null) {
+        clearTimeout(state.timeoutId)
+        state.timeoutId = null
+      }
+      delete telegramPollers[key]
+    }
   }
 }

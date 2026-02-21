@@ -9,6 +9,9 @@ export type AddServerSignerResult = { success: boolean; error?: string }
  * Enables "trade on my behalf": your server can execute transactions from the user's wallet
  * when they're offline (e.g. limit orders, rebalancing). Requires VITE_PRIVY_KEY_QUORUM_ID.
  * See https://docs.privy.io/recipes/wallets/user-and-server-signers
+ *
+ * "Address to add signers to is not associated with current user": the address must be the
+ * user's Privy embedded wallet (from linked_accounts with wallet_client === 'privy'), not an external wallet.
  */
 export function useAddServerSigner(): {
   addServerSigner: () => Promise<AddServerSignerResult>
@@ -21,7 +24,24 @@ export function useAddServerSigner(): {
   const [isLoading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const embeddedAddress = (user as { wallet?: { address?: string } } | null)?.wallet?.address ?? null
+  // addSigners only accepts the embedded wallet address. Resolve from linked_accounts where wallet_client === 'privy'.
+  const embeddedAddress = (() => {
+    if (!user) return null
+    const u = user as {
+      wallet?: { address?: string }
+      linked_accounts?: Array<{ type?: string; address?: string; wallet_client?: string }>
+      linkedAccounts?: Array<{ type?: string; address?: string; walletClientType?: string }>
+    }
+    const accounts = u.linkedAccounts ?? u.linked_accounts ?? []
+    const embedded = accounts.find(
+      (a) =>
+        (a as { type?: string }).type === 'wallet' &&
+        ((a as { wallet_client?: string }).wallet_client === 'privy' ||
+          (a as { walletClientType?: string }).walletClientType === 'privy')
+    ) as { address?: string } | undefined
+    if (embedded?.address) return embedded.address
+    return u.wallet?.address ?? null
+  })()
   const isAvailable = Boolean(PRIVY_KEY_QUORUM_ID && embeddedAddress && addSigners)
 
   const addServerSigner = useCallback(async (): Promise<AddServerSignerResult> => {
@@ -32,7 +52,8 @@ export function useAddServerSigner(): {
       return { success: false, error: msg }
     }
     if (!embeddedAddress) {
-      const msg = 'No embedded wallet. Sign in with Privy; embedded wallets are created for all users.'
+      const msg =
+        'No embedded wallet. "Trade on my behalf" requires a Privy embedded wallet (e.g. sign in with email). If you only connected an external wallet (e.g. MetaMask), add an embedded wallet in your account first.'
       setError(msg)
       return { success: false, error: msg }
     }
