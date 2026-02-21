@@ -3,18 +3,23 @@ import { Braces, Calculator, ChevronDown, ChevronRight, Eye, Filter, Info, Layou
 import { useState, useMemo, useCallback, useRef, useEffect, type DragEvent } from 'react'
 import {
   getBlocksByCategory,
+  getBlocksByCategoryGroupedByService,
   getBlockIcon,
   sidebarColorClasses,
   type BlockDefinition,
   type BlockCategory,
 } from '../../lib/blockRegistry'
-import { useVariables, type Variable } from '../../lib/VariableContext'
 
-/** Order blocks: general (no service) first, then the rest. */
-function orderBlocks(blocks: BlockDefinition[]) {
-  const general = blocks.filter((b) => !b.service)
-  const rest = blocks.filter((b) => b.service)
-  return [...general, ...rest]
+const SERVICE_LABELS: Record<string, string> = {
+  hyperliquid: 'Hyperliquid',
+  uniswap: 'Uniswap',
+  quicknode: 'QuickNode',
+}
+
+const SERVICE_ACCENT: Record<string, string> = {
+  hyperliquid: 'border-emerald-500/30 bg-emerald-500/5',
+  uniswap: 'border-rose-500/30 bg-rose-500/5',
+  quicknode: 'border-violet-500/30 bg-violet-500/5',
 }
 
 function DraggableBlock({ block }: { block: BlockDefinition }) {
@@ -88,13 +93,19 @@ function CollapsibleCategorySection({
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
-  const blocks = useMemo(() => {
-    const raw = getBlocksByCategory(category)
-    const filtered = filterBlocks(raw, query)
-    return orderBlocks(filtered)
+  const { byService, general } = useMemo(() => {
+    const raw = getBlocksByCategoryGroupedByService(category)
+    const filter = (arr: BlockDefinition[]) => filterBlocks(arr, query)
+    const byService: Record<string, BlockDefinition[]> = {}
+    for (const [k, v] of Object.entries(raw.byService)) {
+      const filtered = filter(v)
+      if (filtered.length > 0) byService[k] = filtered
+    }
+    return { byService, general: filter(raw.general) }
   }, [category, query])
 
-  if (blocks.length === 0) return null
+  const totalCount = general.length + Object.values(byService).flat().length
+  if (totalCount === 0) return null
 
   return (
     <div>
@@ -108,79 +119,32 @@ function CollapsibleCategorySection({
           <span className="text-slate-500">{icon}</span>
           <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</span>
         </div>
-        <span className="text-[9px] text-slate-600">({blocks.length})</span>
+        <span className="text-[9px] text-slate-600">({totalCount})</span>
       </button>
       {open && (
-        <div className="flex flex-col gap-1.5">
-          {blocks.map((block) => (
-            <DraggableBlock key={block.type} block={block} />
+        <div className="flex flex-col gap-3">
+          {general.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {general.map((block) => (
+                <DraggableBlock key={block.type} block={block} />
+              ))}
+            </div>
+          )}
+          {Object.entries(byService).map(([service, blocks]) => (
+            <div key={service} className="flex flex-col gap-1.5">
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border ${SERVICE_ACCENT[service] ?? 'border-slate-700/50 bg-slate-800/30'}`}>
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+                  {SERVICE_LABELS[service] ?? service}
+                </span>
+              </div>
+              {blocks.map((block) => (
+                <DraggableBlock key={block.type} block={block} />
+              ))}
+            </div>
           ))}
         </div>
       )}
     </div>
-  )
-}
-
-// ── Variable helpers ──────────────────────────────────────
-
-function DraggableVariable({
-  variable,
-  onUpdate,
-  onDelete,
-}: {
-  variable: Variable
-  onUpdate: (id: string, updates: Partial<Pick<Variable, 'name' | 'value'>>) => void
-  onDelete: (id: string) => void
-}) {
-  const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
-    e.dataTransfer.setData('application/variable', variable.name)
-    e.dataTransfer.effectAllowed = 'copy'
-  }
-
-  return (
-    <div
-      draggable
-      onDragStart={handleDragStart}
-      className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-[#0f1117] border border-blue-500/20 hover:border-blue-500/40 cursor-grab active:cursor-grabbing transition-all group hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30"
-    >
-      <div className="w-6 h-6 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
-        <Braces size={11} className="text-blue-400" />
-      </div>
-
-      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-        <input
-          type="text"
-          value={variable.name}
-          onChange={(e) => onUpdate(variable.id, { name: e.target.value })}
-          placeholder="name"
-          className="bg-transparent text-[11px] font-medium text-blue-300 placeholder-slate-600 outline-none w-full truncate"
-          onMouseDown={(e) => e.stopPropagation()}
-        />
-        <input
-          type="text"
-          value={variable.value}
-          onChange={(e) => onUpdate(variable.id, { value: e.target.value })}
-          placeholder="value"
-          className="bg-transparent text-[10px] text-slate-500 placeholder-slate-700 outline-none w-full truncate font-mono"
-          onMouseDown={(e) => e.stopPropagation()}
-        />
-      </div>
-
-      <button
-        onClick={() => onDelete(variable.id)}
-        className="p-0.5 text-slate-700 hover:text-rose-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
-      >
-        <Trash2 size={10} />
-      </button>
-    </div>
-  )
-}
-
-function filterVariables(variables: Variable[], q: string) {
-  if (!q) return variables
-  const lower = q.toLowerCase()
-  return variables.filter(
-    (v) => v.name.toLowerCase().includes(lower) || v.value.toLowerCase().includes(lower),
   )
 }
 
@@ -214,8 +178,6 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const resizeStartRef = useRef({ x: 0, width: 0 })
 
-  const { variables, addVariable, updateVariable, removeVariable } = useVariables()
-
   useEffect(() => {
     const state = loadSidebarState()
     setSidebarWidth(state.width)
@@ -245,12 +207,6 @@ export default function Sidebar() {
     document.addEventListener('mouseup', onUp)
   }, [sidebarWidth])
 
-  const filteredVariables = useMemo(() => filterVariables(variables, query), [variables, query])
-
-  const handleAddVariable = () => {
-    addVariable(`var${variables.length + 1}`, '')
-  }
-
   const noBlocks = useMemo(() => {
     const hasTriggers = filterBlocks(getBlocksByCategory('trigger'), query).length > 0
     const hasActions = filterBlocks(getBlocksByCategory('action'), query).length > 0
@@ -259,7 +215,6 @@ export default function Sidebar() {
     const hasMath = filterBlocks(getBlocksByCategory('math'), query).length > 0
     return !hasTriggers && !hasActions && !hasFilters && !hasDisplay && !hasMath
   }, [query])
-  const noVariables = filteredVariables.length === 0 && variables.length === 0
 
   const width = collapsed ? COLLAPSED_WIDTH : sidebarWidth
 
@@ -281,22 +236,22 @@ export default function Sidebar() {
           </button>
           <Link
             to="/"
-            className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-600 flex-shrink-0"
+            className="flex items-center justify-center w-14 h-14 flex-shrink-0"
             title="Dragn Swap"
           >
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain rounded-lg" />
+            <img src="/logo-alt.png" alt="Logo" className="w-full h-full object-contain opacity-90 hover:opacity-100 transition-opacity" />
           </Link>
         </div>
       ) : (
         <>
           {/* Logo / Brand */}
           <div className="px-4 py-4 border-b border-slate-800/60 flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
-                <img src="/logo.png" alt="Dragn Swap Logo" className="w-full h-full object-contain" />
-              </div>
+            <div className="flex items-center gap-3 min-w-0">
+              <Link to="/" className="flex-shrink-0 w-12 h-12 flex items-center justify-center">
+                <img src="/logo-alt.png" alt="Dragn Swap Logo" className="w-full h-full object-contain opacity-90 hover:opacity-100 transition-opacity" />
+              </Link>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-100 tracking-tight truncate">Dragn Swap</p>
+                <p className="text-base font-semibold text-slate-100 tracking-tight truncate">Dragn Swap</p>
                 <p className="text-[10px] text-slate-500">DeFi Automation</p>
               </div>
             </div>
@@ -364,52 +319,11 @@ export default function Sidebar() {
           query={query}
         />
 
-        {noBlocks && noVariables && query && (
+        {noBlocks && query && (
           <div className="text-center py-8">
             <p className="text-[10px] text-slate-600">No results for "{query}"</p>
           </div>
         )}
-
-        {/* Variables section */}
-        <div>
-          <div className="flex items-center justify-between mb-2 px-1">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500"><Braces size={11} /></span>
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Variables</span>
-            </div>
-            <button
-              onClick={handleAddVariable}
-              className="p-1 text-slate-600 hover:text-blue-400 transition-colors rounded hover:bg-blue-500/10"
-              title="Add variable"
-            >
-              <Plus size={11} />
-            </button>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {filteredVariables.map((v) => (
-              <DraggableVariable
-                key={v.id}
-                variable={v}
-                onUpdate={updateVariable}
-                onDelete={removeVariable}
-              />
-            ))}
-            {variables.length === 0 && (
-              <button
-                onClick={handleAddVariable}
-                className="flex items-center justify-center gap-1.5 py-3 border border-dashed border-slate-800 hover:border-blue-500/30 rounded-lg text-[10px] text-slate-600 hover:text-blue-400 transition-colors"
-              >
-                <Plus size={10} />
-                Add your first variable
-              </button>
-            )}
-          </div>
-          {variables.length > 0 && (
-            <p className="text-[9px] text-slate-700 mt-2 px-1">
-              Drag onto any input field to use
-            </p>
-          )}
-        </div>
       </div>
 
           {/* Footer */}

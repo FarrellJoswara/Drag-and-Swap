@@ -128,27 +128,27 @@ export default function Topbar({
 
   return (
     <header className="app-topbar">
-      {/* Status indicators */}
+      {/* Logo + status */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5">
-          <Activity size={12} className="text-slate-600" />
-          <span className="text-xs text-slate-500 font-mono">
+          <Activity size={14} className="text-slate-600" />
+          <span className="text-sm text-slate-500 font-mono">
             {nodes.length} nodes
           </span>
         </div>
-        <div className="h-3 w-px bg-slate-800" />
+        <div className="h-4 w-px bg-slate-800" />
         <div className="flex items-center gap-1.5">
-          <CheckCircle size={12} className="text-slate-600" />
-          <span className="text-xs text-slate-500 font-mono">
+          <CheckCircle size={14} className="text-slate-600" />
+          <span className="text-sm text-slate-500 font-mono">
             {edges.length} edges
           </span>
         </div>
         {nodes.length > 0 && (
           <>
-            <div className="h-3 w-px bg-slate-800" />
+            <div className="h-4 w-px bg-slate-800" />
             <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs text-emerald-500/80">Ready</span>
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-sm text-emerald-500/80">Ready</span>
             </div>
           </>
         )}
@@ -187,7 +187,7 @@ export default function Topbar({
 
         <Link
           to="/"
-          className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors rounded-lg hover:bg-slate-800/50"
         >
           My Agents
         </Link>

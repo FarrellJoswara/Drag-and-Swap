@@ -12,6 +12,7 @@ import { executeSwapOnBehalf } from './services/executeSwapOnBehalf'
 import { DisplayValueProvider } from './contexts/DisplayValueContext'
 import { CurrentFlowProvider } from './contexts/CurrentFlowContext'
 import { GraphSeriesProvider } from './contexts/GraphSeriesContext'
+import { RunProgressProvider } from './contexts/RunProgressContext'
 
 function AgentRunners() {
   const { agents } = useAgents()
@@ -36,6 +37,7 @@ export default function Router() {
     <BrowserRouter>
       <DisplayValueProvider>
         <GraphSeriesProvider>
+          <RunProgressProvider>
           <CurrentFlowProvider>
             <AgentRunners />
             <Routes>
@@ -44,6 +46,7 @@ export default function Router() {
           <Route path="/agent/:id" element={<App />} />
             </Routes>
           </CurrentFlowProvider>
+          </RunProgressProvider>
         </GraphSeriesProvider>
       </DisplayValueProvider>
     </BrowserRouter>

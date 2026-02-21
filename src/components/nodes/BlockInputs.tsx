@@ -380,16 +380,13 @@ function SliderInput({ field, value = '', onChange, color }: BlockInputProps) {
   )
 }
 
-function TokenSelectInput({ field, value = '', onChange, color }: BlockInputProps) {
+function TokenSelectInput({ field, value = '', onChange, color, hideLabel }: BlockInputProps) {
   const focus = focusColorClass[color]
   const tokens = field.tokens ?? DEFAULT_TOKENS
-
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
-      <DropZone value={value} onChange={onChange}>
-        <div className="relative">
-          <select
+  const input = (
+    <DropZone value={value} onChange={onChange}>
+      <div className="relative">
+        <select
             value={value}
             onChange={(e) => onChange(e.target.value)}
             className={`${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-7`}
@@ -401,6 +398,12 @@ function TokenSelectInput({ field, value = '', onChange, color }: BlockInputProp
           <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
         </div>
       </DropZone>
+  )
+  if (hideLabel) return <div className="flex flex-col gap-1">{input}</div>
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+      {input}
     </div>
   )
 }
@@ -646,6 +649,7 @@ function SourceCirclePopover({
   onSelectSource,
   availableDataSources = [],
   children,
+  inline = false,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -654,6 +658,8 @@ function SourceCirclePopover({
   onSelectSource?: (nodeId: string, outputName: string) => void
   availableDataSources?: DataSourceOption[]
   children: React.ReactNode
+  /** When true, circle is inside a shared bordered container with children (matches General Comparator) */
+  inline?: boolean
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
@@ -723,22 +729,37 @@ function SourceCirclePopover({
     </>
   )
 
+  const circleButton = (
+    <div className="pointer-events-auto relative" style={{ zIndex: SOURCE_POPOVER_Z }}>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        className="nodrag flex items-center justify-center w-5 h-5 rounded-full border border-slate-600 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 transition-colors flex-shrink-0"
+        title="Input source"
+      >
+        <Circle size={10} fill="currentColor" />
+      </button>
+      {typeof document !== 'undefined' && createPortal(menuContent, document.body)}
+    </div>
+  )
+
+  if (inline) {
+    return (
+      <div className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 min-w-0 flex-1 overflow-hidden">
+        <div className="flex-1 min-w-0 [&_select]:border-0 [&_select]:bg-transparent [&_select]:focus:ring-0 [&_input]:border-0 [&_input]:bg-transparent [&_input]:focus:ring-0">
+          {children}
+        </div>
+        {circleButton}
+      </div>
+    )
+  }
+
   return (
     <div className="relative flex items-center min-w-0 flex-1">
       {children}
-      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
-        <div className="pointer-events-auto relative" style={{ zIndex: SOURCE_POPOVER_Z }}>
-          <button
-            ref={buttonRef}
-            type="button"
-            onClick={() => onOpenChange(!open)}
-            className="nodrag flex items-center justify-center w-5 h-5 rounded-full border border-slate-600 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 transition-colors"
-            title="Input source"
-          >
-            <Circle size={10} fill="currentColor" />
-          </button>
-          {typeof document !== 'undefined' && createPortal(menuContent, document.body)}
-        </div>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+        {circleButton}
       </div>
     </div>
   )
@@ -774,35 +795,40 @@ function InputWithSourceSelector(props: BlockInputProps) {
       currentSourceHandle != null && availableOutputs.some((o) => o.name === currentSourceHandle)
         ? currentSourceHandle
         : (availableOutputs[0]?.name ?? '')
-    const sourceIndex = connectionInfo.sourceNodeId
-      ? availableDataSources.findIndex((s) => s.nodeId === connectionInfo.sourceNodeId) + 1
-      : 0
-    const outputLabel = (o: { name: string; label: string }) =>
-      sourceIndex ? `${sourceIndex}. ${o.label}` : o.label
     return (
       <div className="flex flex-col gap-1">
+        {labelRow}
         <div className="flex items-center gap-1.5">
-          {labelRow}
           <SourceCirclePopover
             open={modeOpen}
             onOpenChange={setModeOpen}
             onManual={setManual}
             onSelectSource={onSelectSource}
             availableDataSources={availableDataSources}
+            inline
           >
-            <div className="relative flex-1 min-w-0 pr-7">
+            <div className="relative flex-1 min-w-0">
               <select
                 value={safeValue}
                 onChange={(e) => props.onSourceOutputChange?.(e.target.value)}
-                className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-2`}
+                className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-6 bg-transparent border-0 focus:ring-0`}
               >
                 {availableOutputs.map((o) => (
-                  <option key={o.name} value={o.name}>{outputLabel(o)}</option>
+                  <option key={o.name} value={o.name}>{o.label}</option>
                 ))}
               </select>
               <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             </div>
           </SourceCirclePopover>
+          {props.suffix && (
+            <button
+              type="button"
+              onClick={props.onSuffixClick}
+              className="nodrag shrink-0 px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-slate-400 rounded transition-colors"
+            >
+              {props.suffix}
+            </button>
+          )}
         </div>
       </div>
     )
@@ -818,23 +844,22 @@ function InputWithSourceSelector(props: BlockInputProps) {
       : 'Source'
     return (
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          {labelRow}
-          <SourceCirclePopover
-            open={modeOpen}
-            onOpenChange={setModeOpen}
-            onManual={setManual}
-            onSelectSource={onSelectSource}
-            availableDataSources={availableDataSources}
+        {labelRow}
+        <SourceCirclePopover
+          open={modeOpen}
+          onOpenChange={setModeOpen}
+          onManual={setManual}
+          onSelectSource={onSelectSource}
+          availableDataSources={availableDataSources}
+          inline
+        >
+          <div
+            className="flex-1 min-w-0 flex items-center px-2.5 py-1.5 text-slate-300 text-xs truncate"
+            title={sourceLabel}
           >
-            <div
-              className={`flex-1 min-w-0 pr-7 flex items-center px-2.5 py-1.5 rounded border bg-slate-800/50 border-slate-600 text-slate-300 text-xs truncate ${focus}`}
-              title={sourceLabel}
-            >
-              {sourceLabel}
-            </div>
-          </SourceCirclePopover>
-        </div>
+            {sourceLabel}
+          </div>
+        </SourceCirclePopover>
       </div>
     )
   }
@@ -842,20 +867,17 @@ function InputWithSourceSelector(props: BlockInputProps) {
   if (mode === 'manual' && showCircle) {
     return (
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          {labelRow}
-          <SourceCirclePopover
-            open={modeOpen}
-            onOpenChange={setModeOpen}
-            onManual={setManual}
-            onSelectSource={onSelectSource}
-            availableDataSources={availableDataSources}
-          >
-            <div className="flex-1 min-w-0 pr-7">
-              <Renderer {...props} hideLabel />
-            </div>
-          </SourceCirclePopover>
-        </div>
+        {labelRow}
+        <SourceCirclePopover
+          open={modeOpen}
+          onOpenChange={setModeOpen}
+          onManual={setManual}
+          onSelectSource={onSelectSource}
+          availableDataSources={availableDataSources}
+          inline
+        >
+          <Renderer {...props} hideLabel />
+        </SourceCirclePopover>
       </div>
     )
   }
@@ -877,36 +899,35 @@ function InputWithSourceSelector(props: BlockInputProps) {
     })
     return (
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5">
-          {labelRow}
-          <SourceCirclePopover
-            open={modeOpen}
-            onOpenChange={setModeOpen}
-            onManual={setManual}
-            onSelectSource={onSelectSource}
-            availableDataSources={availableDataSources}
-          >
-            <div className="relative flex-1 min-w-0 pr-7">
-              <select
-                value=""
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (!v) return
-                  const opt = options.find((o) => o.value === v)
-                  if (opt) onInputSourceChange?.(field.name, { sourceNodeId: opt.nodeId, outputName: opt.outputName })
-                  e.target.value = ''
-                }}
-                className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-2`}
-              >
-                <option value="">Select source…</option>
-                {options.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-              <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-            </div>
-          </SourceCirclePopover>
-        </div>
+        {labelRow}
+        <SourceCirclePopover
+          open={modeOpen}
+          onOpenChange={setModeOpen}
+          onManual={setManual}
+          onSelectSource={onSelectSource}
+          availableDataSources={availableDataSources}
+          inline
+        >
+          <div className="relative flex-1 min-w-0">
+            <select
+              value=""
+              onChange={(e) => {
+                const v = e.target.value
+                if (!v) return
+                const opt = options.find((o) => o.value === v)
+                if (opt) onInputSourceChange?.(field.name, { sourceNodeId: opt.nodeId, outputName: opt.outputName })
+                e.target.value = ''
+              }}
+              className={`nodrag w-full ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-6 bg-transparent border-0 focus:ring-0`}
+            >
+              <option value="">Select source…</option>
+              {options.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+          </div>
+        </SourceCirclePopover>
       </div>
     )
   }

@@ -74,6 +74,10 @@ export type RunOptions = {
   onMultigraphPointUpdate?: (agentId: string, nodeId: string, seriesIndex: number, point: GraphPoint) => void
   /** Agent id when running from subscribeToAgent (for rate limit, etc.). */
   agentId?: string
+  /** Called when a block starts executing (for loading/progress UI). */
+  onBlockStart?: (nodeId: string, blockType: string, label: string) => void
+  /** Called when a block completes (for progress UI). */
+  onBlockComplete?: (nodeId: string, blockType: string, label: string, result?: Record<string, string>) => void
 }
 
 /** Get all node IDs that feed into the given node (upstream dependencies). */
@@ -163,8 +167,10 @@ export async function runFromNode(
       inputs.wallet = context.walletAddress
     }
     try {
+      options?.onBlockStart?.(nid, nodeDef.type, nodeDef.label)
       const result = await nodeDef.run(inputs, { ...runContext, nodeId: nid, agentId: runContext.agentId })
       outputs.set(nid, result)
+      options?.onBlockComplete?.(nid, nodeDef.type, nodeDef.label, result)
       if (nodeDef.type === 'streamDisplay' && options?.onDisplayUpdate) {
         options.onDisplayUpdate(nid, JSON.stringify(result, null, 2))
       }
@@ -182,8 +188,10 @@ export async function runFromNode(
   if (def.type === 'getWalletBalance' && context?.walletAddress && ADDRESS_REGEX.test(context.walletAddress) && !targetInputs.wallet?.trim()) {
     targetInputs.wallet = context.walletAddress
   }
+  options?.onBlockStart?.(nodeId, def.type, def.label)
   const targetResult = await def.run(targetInputs, { ...runContext, nodeId, agentId: runContext.agentId })
   outputs.set(nodeId, targetResult)
+  options?.onBlockComplete?.(nodeId, def.type, def.label, targetResult)
   if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
     options.onDisplayUpdate(nodeId, JSON.stringify(targetResult, null, 2))
   }
@@ -355,9 +363,11 @@ export async function runDownstreamGraph(
       agentId: context?.agentId ?? options?.agentId,
     }
     try {
+      options?.onBlockStart?.(nodeId, def.type, def.label)
       const result = await def.run(inputs, runContext)
       outputs.set(nodeId, result)
       processed.add(nodeId)
+      options?.onBlockComplete?.(nodeId, def.type, def.label, result)
       if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
         options.onDisplayUpdate(nodeId, JSON.stringify(result, null, 2))
       }

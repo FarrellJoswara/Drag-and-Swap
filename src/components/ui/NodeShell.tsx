@@ -13,6 +13,8 @@ interface NodeShellProps {
   width?: number
   /** Optional small action (e.g. Run button) shown next to the badge in the header */
   headerAction?: ReactNode
+  /** When true, shows a pulse/ring to indicate this block is currently executing */
+  isRunning?: boolean
 }
 
 const badgeStyles: Record<BlockColor, string> = {
@@ -42,7 +44,7 @@ const topBorderStyles: Record<BlockColor, string> = {
   yellow: 'from-yellow-500/40 to-yellow-500/0',
 }
 
-export default function NodeShell({ children, label, icon, badge, badgeColor, selected, width, headerAction }: NodeShellProps) {
+export default function NodeShell({ children, label, icon, badge, badgeColor, selected, width, headerAction, isRunning }: NodeShellProps) {
   return (
     <div
       className={[
@@ -51,6 +53,7 @@ export default function NodeShell({ children, label, icon, badge, badgeColor, se
         'bg-[#0f1117] border border-slate-800',
         'shadow-xl shadow-black/50',
         selected ? `ring-1 ${ringStyles[badgeColor]}` : '',
+        isRunning ? 'ring-2 ring-amber-400/60 ring-offset-2 ring-offset-[#0a0a0f] animate-pulse' : '',
         'transition-all duration-150',
       ].join(' ')}
       style={width != null ? { width: `${width}px` } : undefined}
