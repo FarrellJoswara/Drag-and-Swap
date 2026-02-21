@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Braces, Calculator, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, PanelLeftClose, PanelLeft, Plus, Repeat2, Search, Trash2, Zap } from 'lucide-react'
+import { Calculator, ChevronDown, ChevronRight, Eye, Filter, Info, LayoutGrid, PanelLeftClose, PanelLeft, Repeat2, Search, Zap } from 'lucide-react'
 import { useState, useMemo, useCallback, useRef, useEffect, type DragEvent } from 'react'
 import {
   getBlocksByCategory,

@@ -1519,19 +1519,19 @@ registerBlock({
   run: async (inputs, context) => swap(inputs, context),
 })
 
-// ─── Trade on my behalf (Uniswap swap with wallet) ─────────────────
-// Uses connected Privy wallet; shows a warning when added from toolbox.
+// ─── Trade on my behalf (server signs, no popup) ─────────────────────
+// Uses connected Privy wallet; server executes swap via key quorum (no wallet prompt).
+// Requires "Allow app to trade on my behalf" and server PRIVY_AUTH_PRIVATE_KEY.
 
 registerBlock({
   type: 'swapOnBehalf',
   label: 'Trade on my behalf',
-  description: 'Execute a swap using your connected wallet. When "No approval popup" is on, the server signs for you (no wallet prompt). Requires you to have enabled "Allow app to trade on my behalf" and server configured with PRIVY_AUTH_PRIVATE_KEY.',
+  description: 'Execute a swap using your connected wallet. The server signs for you (no wallet prompt). Requires you to have enabled "Allow app to trade on my behalf" and server configured with PRIVY_AUTH_PRIVATE_KEY.',
   category: 'action',
   service: 'uniswap',
   color: 'amber',
   icon: 'zap',
   inputs: [
-    { name: 'useServerSigner', label: 'No approval popup (server signs)', type: 'toggle', defaultValue: 'true' },
     { name: 'fromToken', label: 'From Token', type: 'tokenSelect', defaultValue: 'ETH', allowVariable: true },
     { name: 'toToken', label: 'To Token', type: 'tokenSelect', defaultValue: 'USDC', allowVariable: true },
     { name: 'amount', label: 'Amount', type: 'number', placeholder: '1.0', allowVariable: true },
@@ -1542,7 +1542,7 @@ registerBlock({
     { name: 'amountOut', label: 'Amount Received' },
     { name: 'gasUsed', label: 'Gas Used' },
   ],
-  run: async (inputs, context) => swap(inputs, context),
+  run: async (inputs, context) => swap({ ...inputs, useServerSigner: 'true' }, context),
 })
 
 // ─── Trade on my behalf (Privy server signers) ─────────────────────
@@ -1732,8 +1732,9 @@ registerBlock({
 
 // ─── Telegram message trigger (get updates) ───────────────────────────────
 
+/** Server uses TELEGRAM_BOT_TOKEN; client never receives the token. */
 function getAppTelegramBotToken(): string {
-  return (import.meta.env.VITE_TELEGRAM_BOT_TOKEN as string | undefined ?? '').trim()
+  return ''
 }
 
 registerBlock({

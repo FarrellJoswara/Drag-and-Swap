@@ -23,14 +23,14 @@ export async function sendTelegram(inputs: Record<string, string>): Promise<Reco
   const botToken = (inputs.botToken ?? '').trim()
   const chatId = (inputs.chatId ?? '').trim()
   const text = (inputs.message ?? '').trim()
-  if (!botToken || !chatId) {
-    throw new Error('Telegram: bot token and chat ID are required. Connect Get Telegram\'s chatId to Send Telegram\'s Chat ID to reply to the same chat.')
+  if (!chatId) {
+    throw new Error('Telegram: chat ID is required. Connect Get Telegram\'s chatId to Send Telegram\'s Chat ID to reply to the same chat.')
   }
   if (!text) {
     throw new Error('Telegram: message cannot be empty. Enter text or connect Get Telegram\'s messageText.')
   }
   const parseMode = inputs.parseMode || 'HTML'
-  const body = { botToken, chatId, message: text, parseMode }
+  const body = { ...(botToken && { botToken }), chatId, message: text, parseMode }
 
   // Server proxy (Vercel) or Vite plugin (local dev) — bypasses CORS
   const apiRes = await fetch('/api/telegram-send', {
@@ -47,7 +47,10 @@ export async function sendTelegram(inputs: Record<string, string>): Promise<Reco
     return { ok: ok ? 'true' : 'false', status: String(apiRes.status), response: JSON.stringify(data) }
   }
 
-  // Fallback: CORS proxy (for local dev when /api is not available)
+  // Fallback: CORS proxy only when client has a token (for local dev when /api is not available)
+  if (!botToken) {
+    throw new Error('Telegram: server token not set. Add TELEGRAM_BOT_TOKEN to Vercel env (or .env.local for local API).')
+  }
   const useCorsProxy = inputs.useCorsProxy !== 'false'
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`
   const tgBody = JSON.stringify({ chat_id: chatId, text, parse_mode: parseMode })
@@ -124,13 +127,13 @@ async function getTelegramUpdates(
   offset: number,
   useCorsProxy: boolean,
 ): Promise<{ updates: TelegramMessageUpdate[]; nextOffset: number; is409?: boolean }> {
-  if (!botToken.trim()) return { updates: [], nextOffset: offset }
   const token = botToken.trim()
+  const useServerToken = !token
 
   const apiRes = await fetch('/api/telegram-get-updates', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ botToken: token, offset }),
+    body: JSON.stringify(useServerToken ? { offset } : { botToken: token, offset }),
   }).catch(() => null)
 
   const status = apiRes?.status
@@ -273,16 +276,14 @@ export function startTelegramMessagePolling(
   onMessage: (out: Record<string, string>) => void,
 ): () => void {
   const token = (botToken ?? '').trim()
-  if (!token) {
-    console.warn('[Telegram trigger] No bot token; add VITE_TELEGRAM_BOT_TOKEN to .env.local')
-    return () => {}
-  }
-
   const useCorsProxy = options.useCorsProxy !== false
   const chatIdFilter = (options.chatIdFilter ?? '').trim()
   const fromHandleFilter = normalizeHandle(options.fromHandleFilter ?? '')
   const intervalMs = Math.max(2000, Math.min(60000, (options.pollIntervalSeconds ?? 5) * 1000))
-  const key = token
+  const key = token || '__server__'
+  if (!token) {
+    console.warn('[Telegram trigger] Using server token (TELEGRAM_BOT_TOKEN). If Get Telegram fails, set TELEGRAM_BOT_TOKEN in Vercel or .env.local for the API.')
+  }
 
   if (!telegramPollers[key]) {
     telegramPollers[key] = {

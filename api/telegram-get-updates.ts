@@ -1,6 +1,6 @@
 /**
  * Vercel serverless API: proxy Telegram getUpdates to avoid CORS.
- * Client sends botToken, offset; server forwards to Telegram API.
+ * Uses server env TELEGRAM_BOT_TOKEN when client does not send botToken (recommended; keeps token out of browser).
  */
 
 export default async function handler(request: Request) {
@@ -21,11 +21,14 @@ export default async function handler(request: Request) {
     })
   }
 
-  const botToken = (body.botToken ?? '').trim()
+  const clientToken = (body.botToken ?? '').trim()
+  const botToken = clientToken || (process.env.TELEGRAM_BOT_TOKEN ?? '').trim()
   const offset = Number(body.offset ?? 0)
   if (!botToken) {
     return new Response(
-      JSON.stringify({ error: 'botToken is required' }),
+      JSON.stringify({
+        error: 'Telegram bot token required. Set TELEGRAM_BOT_TOKEN in Vercel (or send botToken in body).',
+      }),
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     )
   }

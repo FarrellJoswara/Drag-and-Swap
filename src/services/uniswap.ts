@@ -307,7 +307,7 @@ export type SwapContext = {
 export async function swap(inputs: Record<string, string>, context?: SwapContext) {
   const params = await blockInputsToApiParams(inputs)
 
-  // Server signer path: execute swap on backend (no popup). Only when block opts in (e.g. "Trade on my behalf").
+  // Server signer path: execute swap on backend (no popup). Used by "Trade on my behalf" block (always) or when swap block has useServerSigner.
   const useServer = inputs.useServerSigner === 'true'
   if (useServer && context?.sendTransactionServer && params.swapper && ADDRESS_REGEX.test(params.swapper)) {
     const result = await context.sendTransactionServer({

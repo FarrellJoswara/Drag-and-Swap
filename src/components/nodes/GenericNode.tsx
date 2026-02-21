@@ -69,6 +69,7 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
     () => (data.sidePanelOpen as boolean) ?? false,
   )
   const [runLoading, setRunLoading] = useState(false)
+  const [hover, setHover] = useState(false)
   const setSidePanelOpenAndPersist = useCallback(
     (open: boolean) => {
       setSidePanelOpen(open)
@@ -164,6 +165,22 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
 
   const Icon = getBlockIcon(definition.icon)
   const edges = useEdges()
+
+  // Outputs for this block (for hover popup)
+  const outputFields = useMemo(
+    () => getOutputsForBlock(blockType, data ?? {}),
+    [blockType, data],
+  )
+
+  // Block width (match NodeShell so popup aligns)
+  const blockWidth =
+    blockType === 'streamDisplay'
+      ? (data.streamDisplayWidth != null ? Number(data.streamDisplayWidth) : 220)
+      : blockType === 'graphDisplay'
+        ? (data.graphDisplayWidth != null ? Number(data.graphDisplayWidth) : 280)
+        : blockType === 'multigraph'
+          ? (data.multigraphWidth != null ? Number(data.multigraphWidth) : 320)
+          : 220
 
   // Count execution edges from this node (single exec-out handle)
   const outputConnections = useMemo(() => {
@@ -915,7 +932,45 @@ export default function GenericNode({ id, data, selected }: NodeProps) {
   )
 
   return (
-    <div className="relative" title={`Block ID: ${id}`}>
+    <div
+      className="relative"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {/* Hover popup: block ID + output variables */}
+      {hover && (
+        <div
+          className="nodrag nopan absolute left-0 bottom-full mb-1.5 z-[100] px-2.5 py-2 rounded-lg bg-slate-800 border border-slate-600 shadow-xl text-left box-border"
+          style={{ pointerEvents: 'none', width: blockWidth }}
+        >
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+            Block ID
+          </div>
+          <div className="text-xs font-mono text-slate-200 break-all mb-2">
+            {id}
+          </div>
+          {outputFields.length > 0 && (
+            <>
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                Outputs
+              </div>
+              <ul className="space-y-0.5">
+                {outputFields.map((out) => (
+                  <li key={out.name} className="text-xs text-slate-300 flex items-baseline gap-1.5 flex-wrap">
+                    <span className="font-mono text-slate-200 shrink-0">{out.name}</span>
+                    {out.type != null && (
+                      <span className="text-slate-500 text-[10px] shrink-0">({out.type})</span>
+                    )}
+                    {out.label !== out.name && (
+                      <span className="text-slate-500 truncate">{out.label}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
       {nodeContent}
 
       {/* Execution input handle (one per non-trigger block) */}
