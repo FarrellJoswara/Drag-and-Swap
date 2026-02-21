@@ -13,6 +13,21 @@ body {
   overflow: hidden;
 }
 
+/* Shared app header: same height/size on My Agents and flow editor */
+.app-topbar {
+  height: 3rem;
+  min-height: 3rem;
+  max-height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  flex-shrink: 0;
+  background: #0a0a0f;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+}
+
 /* ReactFlow dark overrides */
 .react-flow__background {
   background-color: #0a0a0f;

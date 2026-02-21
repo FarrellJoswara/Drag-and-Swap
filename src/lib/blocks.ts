@@ -23,16 +23,17 @@
  */
 
 import { registerBlock } from './blockRegistry'
+import { recentTrades, bookSnapshot, recentEvents } from '../services/hyperliquid'
 import {
-  recentTrades,
-  bookSnapshot,
-  recentEvents,
+  buildFiltersFromSpec,
+  validateFilterLimits,
+  parseCommaSeparated,
+} from '../services/hyperliquid/filters'
+import { FILTER_LIMITS, type HyperliquidStreamType, type HyperliquidStreamMessage } from '../services/hyperliquid/types'
+import {
   subscribe,
-  type HyperliquidStreamType,
-  type HyperliquidFilters,
-  type HyperliquidStreamMessage,
-} from '../services/hyperliquid'
-import { normalizeStreamEventToUnifiedOutputs } from '../services/hyperliquid/streams'
+  normalizeStreamEventToUnifiedOutputs,
+} from '../services/hyperliquid/streams'
 import { swap } from '../services/uniswap'
 import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
 
@@ -116,35 +117,116 @@ registerBlock({
   service: 'hyperliquid',
   color: 'emerald',
   icon: 'activity',
+  sidePanel: { label: 'Filters', mainInputNames: ['streamType'] },
   inputs: [
     {
       name: 'streamType',
       label: 'Stream Type',
       type: 'select',
-      // Use underlying stream type values for now to remain backward compatible
       options: ['trades', 'orders', 'book_updates', 'twap', 'events', 'writer_actions'],
       defaultValue: 'trades',
+      optionDescriptions: {
+        trades: 'Filled trades / executions',
+        orders: 'Order status updates',
+        book_updates: 'Order book changes',
+        twap: 'TWAP execution status',
+        events: 'Account events (deposits, withdrawals, etc.)',
+        writer_actions: 'Core writer actions',
+      },
+    },
+    {
+      name: 'filtersEnabled',
+      label: 'Enable filters',
+      type: 'toggle',
+      defaultValue: 'true',
     },
     {
       name: 'coin',
-      label: 'Coin (optional)',
+      label: 'Filter: Coin',
       type: 'tokenSelect',
-      tokens: ['BTC', 'ETH', 'SOL', 'HYPE', 'ARB', 'OP', 'DOGE', 'AVAX', 'LINK', 'MATIC'],
+      tokens: ['BTC', 'ETH', 'SOL', 'HYPE', 'ARB', 'OP', 'DOGE', 'AVAX', 'LINK', 'MATIC', 'UNI', 'ATOM', 'LTC', 'XRP', 'ADA', 'DOT', 'AAVE', 'CRV', 'MKR', 'SNX'],
+      placeholder: 'All coins',
       allowVariable: true,
     },
     {
       name: 'user',
-      label: 'User Address (optional)',
+      label: 'Filter: User address(es)',
       type: 'address',
-      placeholder: '0x...',
+      placeholder: '0x... or comma-separated for multiple',
       allowVariable: true,
     },
     {
       name: 'side',
-      label: 'Side (optional)',
+      label: 'Filter: Side',
       type: 'select',
-      options: ['B', 'A', 'Both'],
+      options: ['Both', 'B', 'A'],
       defaultValue: 'Both',
+      optionDescriptions: {
+        Both: 'No side filter',
+        B: 'Bid / buy only',
+        A: 'Ask / sell only',
+      },
+    },
+    {
+      name: 'eventType',
+      label: 'Filter: Event / action type',
+      type: 'select',
+      options: [
+        'All',
+        'deposit',
+        'withdraw',
+        'internalTransfer',
+        'spotTransfer',
+        'liquidation',
+        'funding',
+        'vaultDeposit',
+        'vaultWithdraw',
+        'SystemSpotSendAction',
+        'SystemPerpsAction',
+        'CoreWriterAction',
+      ],
+      defaultValue: 'All',
+      optionDescriptions: {
+        All: 'No event type filter',
+        deposit: 'Deposit events',
+        withdraw: 'Withdrawal events',
+        internalTransfer: 'Internal transfer',
+        spotTransfer: 'Spot transfer',
+        liquidation: 'Liquidation events',
+        funding: 'Funding events',
+        vaultDeposit: 'Vault deposit',
+        vaultWithdraw: 'Vault withdraw',
+        SystemSpotSendAction: 'System spot send',
+        SystemPerpsAction: 'System perps action',
+        CoreWriterAction: 'Core writer action',
+      },
+    },
+    {
+      name: 'filterPreset',
+      label: 'Filter: Preset (trades)',
+      type: 'select',
+      options: ['None', 'Liquidations only', 'TWAP only'],
+      defaultValue: 'None',
+      optionDescriptions: {
+        None: 'No preset filter',
+        'Liquidations only': 'Only liquidation trades',
+        'TWAP only': 'Only TWAP executions',
+      },
+    },
+    {
+      name: 'extraFilters',
+      label: 'Filter: Extra (JSON)',
+      type: 'textarea',
+      placeholder: 'e.g. {"coin":["BTC","ETH"]} or {"liquidation":["*"]} or {"twapId":["*"]}',
+      rows: 2,
+      allowVariable: true,
+    },
+    {
+      name: 'filterName',
+      label: 'Filter name (optional)',
+      type: 'text',
+      placeholder: 'Name for unsubscribe',
+      allowVariable: true,
     },
   ],
   outputs: [
@@ -178,6 +260,8 @@ registerBlock({
   },
   subscribe: (inputs, onTrigger) => {
     const rawStreamType = (inputs.streamType || 'trades').trim()
+    const hasWsUrl = !!(import.meta.env.VITE_QUICKNODE_HYPERLIQUID_WS_URL as string | undefined)?.trim()
+    console.log('[hyperliquidStream] Setting up stream:', rawStreamType, hasWsUrl ? '(WS URL set)' : '(WS URL missing — set VITE_QUICKNODE_HYPERLIQUID_WS_URL in .env.local and restart dev server)')
     // Allow both friendly labels and raw values for future compatibility
     const streamTypeMap: Record<string, HyperliquidStreamType> = {
       trades: 'trades',
@@ -196,28 +280,63 @@ registerBlock({
     const streamType =
       (streamTypeMap[rawStreamType] as HyperliquidStreamType | undefined) ?? 'trades'
 
-    const filters: HyperliquidFilters = {}
+    const filtersEnabled = inputs.filtersEnabled !== 'false'
+    let spec: Record<string, string[] | undefined> = {}
 
-    // Build filters based on stream type and provided inputs
-    if (inputs.coin && inputs.coin.trim()) {
-      filters.coin = [inputs.coin.trim()]
-    }
-    if (inputs.user && inputs.user.trim()) {
-      filters.user = [inputs.user.trim()]
-    }
-    if (inputs.side && inputs.side !== 'Both') {
-      // Side filter only applies to streams that support sides
-      if (streamType === 'trades' || streamType === 'orders' || streamType === 'book_updates') {
-        filters.side = [inputs.side]
-      } else {
-        console.warn(
-          `[hyperliquidStream] Side filter does not apply to stream type "${streamType}", ignoring side filter`,
-        )
+    if (filtersEnabled) {
+      const coinVal = (inputs.coin ?? '').trim()
+      const coinArr = coinVal ? [coinVal] : []
+      const userArr = parseCommaSeparated(inputs.user, FILTER_LIMITS.maxUserValues)
+      const eventTypeRaw = (inputs.eventType ?? 'All').trim()
+      const eventTypeVal = eventTypeRaw === 'All' ? '' : eventTypeRaw
+      const typeArr = eventTypeVal ? [eventTypeVal] : []
+      if (coinArr.length) spec.coin = coinArr
+      if (userArr.length) spec.user = userArr
+      if (typeArr.length) spec.type = typeArr
+      if (inputs.side && inputs.side !== 'Both') {
+        if (streamType === 'trades' || streamType === 'orders' || streamType === 'book_updates') {
+          spec.side = [inputs.side]
+        } else {
+          console.warn(
+            `[hyperliquidStream] Side filter does not apply to stream type "${streamType}", ignoring side filter`,
+          )
+        }
+      }
+      const preset = (inputs.filterPreset ?? 'None').trim()
+      if (streamType === 'trades' && preset === 'Liquidations only') spec.liquidation = ['*']
+      if (streamType === 'trades' && preset === 'TWAP only') spec.twapId = ['*']
+      // Merge extra filters JSON (e.g. {"coin":["BTC","ETH"],"liquidation":["*"]})
+      const extraRaw = inputs.extraFilters?.trim()
+      if (extraRaw) {
+        try {
+          const extra = JSON.parse(extraRaw) as Record<string, unknown>
+          if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+            for (const [k, v] of Object.entries(extra)) {
+              if (Array.isArray(v)) {
+                const arr = v.map((x) => String(x).trim()).filter(Boolean)
+                if (arr.length) spec[k] = arr
+              } else if (v != null && v !== '') {
+                spec[k] = [String(v).trim()]
+              }
+            }
+          }
+        } catch {
+          console.warn('[hyperliquidStream] Invalid Filter: Extra (JSON), ignoring')
+        }
       }
     }
 
-    // Subscribe to the stream
-    const unsubscribe = subscribe(streamType, filters, (msg: HyperliquidStreamMessage) => {
+    const filters = buildFiltersFromSpec(streamType, spec)
+    const validation = validateFilterLimits(streamType, filters)
+    if (!validation.valid) {
+      console.warn('[hyperliquidStream] Filter validation:', validation.errors.join('; '))
+    }
+
+    const filterName = inputs.filterName?.trim() || undefined
+    const unsubscribe = subscribe(
+      streamType,
+      filters,
+      (msg: HyperliquidStreamMessage) => {
       const eventsFromData = msg.data?.events
       const legacyEvents =
         eventsFromData == null
@@ -235,58 +354,39 @@ registerBlock({
           console.warn('[hyperliquidStream] normalize error', e)
         }
       }
-    })
+    },
+      filterName
+    )
 
     return unsubscribe
   },
 })
 
-// ─── Stream Display Block (Visualization / Debug) ──────────
+// ─── Output Display Block (Visualization / Debug) ──────────
 
 registerBlock({
   type: 'streamDisplay',
-  label: 'Stream Display',
+  label: 'Output Display',
   description:
-    'Display events from a JSON data stream. Connect outputs like Hyperliquid Stream → data.',
+    'Connect a block and choose which outputs to show. Live output appears in the console below.',
   category: 'display',
   color: 'blue',
   icon: 'eye',
   inputs: [
     {
       name: 'data',
-      label: 'Event Data',
+      label: 'Source',
       type: 'textarea',
-      placeholder: 'Connect a JSON event stream output here',
-      rows: 3,
+      placeholder: '',
+      rows: 1,
       allowVariable: true,
-      // Accept JSON or string outputs from upstream blocks
       accepts: ['json', 'string'],
     },
     {
-      name: 'label',
-      label: 'Feed Label',
-      type: 'text',
-      placeholder: 'BTC Trades',
-      defaultValue: 'Stream Feed',
-    },
-    {
       name: 'fields',
-      label: 'Fields to Show (comma-separated)',
+      label: 'Fields to Show',
       type: 'text',
-      placeholder: 'price, side, coin',
-    },
-    {
-      name: 'maxItems',
-      label: 'Max Items',
-      type: 'number',
-      placeholder: '50',
-      defaultValue: '50',
-    },
-    {
-      name: 'compact',
-      label: 'Compact View',
-      type: 'toggle',
-      defaultValue: 'true',
+      placeholder: '[]',
     },
   ],
   outputs: [
@@ -297,23 +397,38 @@ registerBlock({
     },
   ],
   run: async (inputs) => {
-    const raw = inputs.data ?? ''
-    let lastEvent = raw
-
-    // Try to normalize to pretty JSON string; fall back to raw on error
+    let lastEvent = ''
     try {
-      if (typeof raw === 'string' && raw.trim()) {
-        const parsed = JSON.parse(raw)
+      const raw = inputs.data ?? ''
+      if (typeof raw !== 'string') {
+        lastEvent = JSON.stringify(raw)
+        return { lastEvent }
+      }
+      if (!raw.trim()) {
+        return { lastEvent: '' }
+      }
+      const parsed = JSON.parse(raw)
+      let selectedKeys: string[] = []
+      try {
+        const fieldsRaw = (inputs.fields ?? '').trim()
+        if (fieldsRaw) selectedKeys = JSON.parse(fieldsRaw)
+        if (!Array.isArray(selectedKeys)) selectedKeys = []
+      } catch {
+        selectedKeys = []
+      }
+      if (selectedKeys.length > 0 && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const filtered: Record<string, unknown> = {}
+        for (const key of selectedKeys) {
+          if (key in parsed) filtered[key] = (parsed as Record<string, unknown>)[key]
+        }
+        lastEvent = Object.keys(filtered).length > 0 ? JSON.stringify(filtered) : JSON.stringify(parsed)
+      } else {
         lastEvent = JSON.stringify(parsed)
       }
     } catch {
-      // Keep raw value if it is not valid JSON
-      lastEvent = raw
+      lastEvent = typeof inputs.data === 'string' ? inputs.data : ''
     }
-
-    return {
-      lastEvent,
-    }
+    return { lastEvent }
   },
 })
 

@@ -13,7 +13,14 @@ export type {
   BookUpdateEvent,
   TwapEvent,
   WriterActionEvent,
+  UnifiedFilterSpec,
 } from './types'
+export { FILTER_LIMITS } from './types'
+export {
+  buildFiltersFromSpec,
+  validateFilterLimits,
+  parseCommaSeparated,
+} from './filters'
 
 // Export all Info API functions
 export * from './info'

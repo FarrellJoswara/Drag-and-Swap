@@ -15,6 +15,18 @@ export type HyperliquidStreamType =
 /** Filters sent with subscription: e.g. { coin: ['BTC'], side: ['B'] }. Key = filter name, value = list of allowed values. */
 export type HyperliquidFilters = Record<string, string[]>
 
+/** QuickNode filter limits (see stream filtering docs). */
+export const FILTER_LIMITS = {
+  maxUserValues: 100,
+  maxCoinValues: 50,
+  maxTypeValues: 20,
+  maxTotalValues: 500,
+  maxNamedFiltersPerStream: 10,
+} as const
+
+/** Spec for building filters: same keys as API, values as string arrays (e.g. comma-separated parsed). Events stream uses "users" not "user"; buildFiltersFromSpec maps spec.user → users for events. */
+export type UnifiedFilterSpec = Record<string, string[] | undefined>
+
 /**
  * WebSocket message from QuickNode: either a subscription confirmation (result.subscribed)
  * or a data block (data with block_number, block_time, events).

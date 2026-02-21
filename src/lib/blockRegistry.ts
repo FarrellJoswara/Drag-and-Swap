@@ -58,6 +58,8 @@ export interface InputField {
   tokens?: string[]
   /** Array of accepted output types for connection validation */
   accepts?: string[]
+  /** Optional map of option value -> description for select dropdowns (hover tooltips) */
+  optionDescriptions?: Record<string, string>
 }
 
 export interface OutputField {
@@ -91,6 +93,8 @@ export interface BlockDefinition {
   service?: BlockService
   inputs: InputField[]
   outputs: OutputField[]
+  /** When set, block uses side-panel layout: inputs in mainInputNames go in main card, rest in side panel */
+  sidePanel?: { label: string; mainInputNames: string[] }
   run: (inputs: Record<string, string>, context?: import('./runAgent').RunContext) => Promise<Record<string, string>>
   /** Interrupt-based: subscribe to events, call onTrigger when they occur. Returns cleanup. */
   subscribe?: (inputs: Record<string, string>, onTrigger: TriggerCallback) => Unsubscribe

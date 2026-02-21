@@ -57,14 +57,48 @@ const activeSubscriptions = new Map<number, Subscription>()
  * Subscribe to a Hyperliquid stream (trades, orders, etc.). Server pushes messages;
  * onMessage is called for each data block. Returns an unsubscribe function — call it
  * to send hl_unsubscribe and close the socket.
+ * Optional filterName: sent to QuickNode for unsubscribe-by-name and OR logic across named filters.
  */
 export function subscribe(
   streamType: HyperliquidStreamType,
   filters: HyperliquidFilters,
-  onMessage: (message: HyperliquidStreamMessage) => void
+  onMessage: (message: HyperliquidStreamMessage) => void,
+  filterName?: string
 ): () => void {
   if (!WS_URL) {
     console.warn('VITE_QUICKNODE_HYPERLIQUID_WS_URL is not set — streaming disabled')
+    // Fire one placeholder so downstream (e.g. Output Display) shows a message. Use trade-shaped
+    // tuple so normalizeStreamEventToUnifiedOutputs('trades', ...) does not throw.
+    const hint =
+      'Set VITE_QUICKNODE_HYPERLIQUID_WS_URL in .env.local to enable the Hyperliquid stream. Then save/deploy and run the agent again.'
+    try {
+      onMessage({
+        data: {
+          block_number: 0,
+          block_time: '',
+          local_time: '',
+          events: [
+            [
+              '',
+              {
+                coin: '',
+                px: '',
+                sz: '',
+                side: '',
+                dir: '',
+                hash: '',
+                fee: '',
+                tid: 0,
+                closedPnl: '',
+                _hint: hint,
+              },
+            ],
+          ],
+        },
+      })
+    } catch (_) {
+      // ignore
+    }
     return () => {}
   }
 
@@ -82,16 +116,19 @@ export function subscribe(
   })
   // #endregion
 
+  console.log('[Hyperliquid WS] Connecting to stream:', streamType, '| URL path:', WS_URL.includes('/hypercore/ws') ? '/hypercore/ws' : 'custom')
   const ws = new WebSocket(WS_URL)
   const id = ++wsId
+  const name = filterName?.trim() || undefined
 
   const unsubscribeFn = () => {
     try {
+      const params = name ? { filterName: name } : { streamType }
       ws.send(
         JSON.stringify({
           jsonrpc: '2.0',
           method: 'hl_unsubscribe',
-          params: { streamType },
+          params,
           id: id + 1000,
         }),
       )
@@ -111,6 +148,7 @@ export function subscribe(
   })
 
   ws.onopen = () => {
+    console.log('[Hyperliquid WS] Connected, sending hl_subscribe for', streamType)
     // #region agent log
     debugIngest({
       location: 'streams.ts:ws.onopen',
@@ -120,13 +158,15 @@ export function subscribe(
       hypothesisId: 'H1',
     })
     // #endregion
+    const params: Record<string, unknown> = {
+      streamType,
+      ...(Object.keys(filters).length ? { filters } : {}),
+      ...(name ? { filterName: name } : {}),
+    }
     const payload: Record<string, unknown> = {
       jsonrpc: '2.0',
       method: 'hl_subscribe',
-      params: {
-        streamType,
-        ...(Object.keys(filters).length ? { filters } : {}),
-      },
+      params,
       id,
     }
     ws.send(JSON.stringify(payload))
@@ -134,13 +174,35 @@ export function subscribe(
 
   ws.onmessage = (event) => {
     try {
-      const msg = JSON.parse(event.data as string) as HyperliquidStreamMessage
-      if (msg.error) {
-        console.error('[Hyperliquid WS]', msg.error)
+      const raw = JSON.parse(event.data as string) as HyperliquidStreamMessage & { block?: { block_number?: number; block_time?: string; local_time?: string; events?: unknown[] }; type?: string }
+      if (raw.error) {
+        console.error('[Hyperliquid WS]', raw.error)
         return
       }
-      if (msg.result?.subscribed) return
-      if (msg.data ?? msg.block_number != null) onMessage(msg)
+      if (raw.result?.subscribed) {
+        console.log('[Hyperliquid WS] Subscription confirmed for', streamType)
+        return
+      }
+      // QuickNode may send payload with "block" instead of "data"; normalize to our expected shape
+      let msg: HyperliquidStreamMessage = raw
+      if (raw.block != null && raw.data == null) {
+        const b = raw.block
+        msg = {
+          ...raw,
+          block_number: raw.block_number ?? b.block_number,
+          data: {
+            block_number: b.block_number ?? 0,
+            block_time: b.block_time ?? '',
+            local_time: b.local_time ?? '',
+            events: Array.isArray(b.events) ? b.events : [],
+          },
+        }
+      }
+      const eventCount = msg.data?.events?.length ?? 0
+      if (eventCount > 0) console.log('[Hyperliquid WS] Data block:', eventCount, 'event(s)')
+      if (msg.data ?? msg.block_number != null) {
+        onMessage(msg)
+      }
     } catch (e) {
       console.error('[Hyperliquid WS] parse error', e)
     }
@@ -159,6 +221,7 @@ export function subscribe(
     console.error('[Hyperliquid WS] error', e)
   }
   ws.onclose = (ev) => {
+    console.log('[Hyperliquid WS] Closed:', ev.code, ev.reason || '(no reason)')
     // #region agent log
     debugIngest({
       location: 'streams.ts:ws.onclose',

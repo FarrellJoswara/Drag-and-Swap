@@ -7,6 +7,7 @@ import {
   focusColorClass,
   accentBgClass,
 } from '../../lib/blockRegistry'
+import SelectWithOptionTooltips from './node-extension/SelectWithOptionTooltips'
 import { useWalletAddress } from '../../hooks/useWalletAddress'
 import { usePrivy } from '@privy-io/react-auth'
 
@@ -86,6 +87,15 @@ function DropZone({
   )
 }
 
+// ── Connection info (when input is wired from another block) ──
+
+export type ConnectionInfo = {
+  edgeId: string
+  sourceBlockLabel: string
+  availableOutputs: Array<{ name: string; label: string }>
+  currentSourceHandle: string
+}
+
 // ── Input type renderers ──────────────────────────────────
 
 export interface BlockInputProps {
@@ -93,6 +103,10 @@ export interface BlockInputProps {
   value?: string
   onChange: (val: string) => void
   color: BlockColor
+  connectionInfo?: ConnectionInfo
+  onSourceOutputChange?: (outputName: string) => void
+  /** When true, do not show "From X:" above the dropdown (e.g. when "Connected to" is at node top) */
+  hideSourceLabel?: boolean
 }
 
 function TextInput({ field, value = '', onChange, color }: BlockInputProps) {
@@ -136,6 +150,24 @@ function NumberInput({ field, value = '', onChange, color }: BlockInputProps) {
 
 function SelectInput({ field, value = '', onChange, color }: BlockInputProps) {
   const focus = focusColorClass[color]
+  const options = field.options ?? []
+  if (field.optionDescriptions && Object.keys(field.optionDescriptions).length > 0) {
+    return (
+      <div className="flex flex-col gap-1">
+        <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+        <DropZone value={value} onChange={onChange}>
+          <SelectWithOptionTooltips
+            value={value}
+            options={options}
+            optionDescriptions={field.optionDescriptions}
+            onChange={onChange}
+            focusClass={focus}
+            baseClass={baseInput(focus)}
+          />
+        </DropZone>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-1">
       <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
@@ -146,7 +178,7 @@ function SelectInput({ field, value = '', onChange, color }: BlockInputProps) {
             onChange={(e) => onChange(e.target.value)}
             className={`${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-7`}
           >
-            {(field.options ?? []).map((opt) => (
+            {options.map((opt) => (
               <option key={opt} value={opt}>{opt}</option>
             ))}
           </select>
@@ -357,6 +389,119 @@ function KeyValueInput({ field, value = '', onChange, color }: BlockInputProps) 
   )
 }
 
+// ── Connected input (dropdown to pick which output flows) ──
+
+function ConnectedInputDropdown({
+  field,
+  connectionInfo,
+  onSourceOutputChange,
+  color,
+  hideSourceLabel = false,
+}: {
+  field: InputField
+  connectionInfo: ConnectionInfo
+  onSourceOutputChange: (outputName: string) => void
+  color: BlockColor
+  hideSourceLabel?: boolean
+}) {
+  const focus = focusColorClass[color]
+  const { availableOutputs, sourceBlockLabel, currentSourceHandle } = connectionInfo
+  const safeValue =
+    availableOutputs.some((o) => o.name === currentSourceHandle)
+      ? currentSourceHandle
+      : (availableOutputs[0]?.name ?? '')
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+      <div className="flex flex-col gap-0.5">
+        {!hideSourceLabel && <span className="text-[9px] text-slate-500">From {sourceBlockLabel}:</span>}
+        <div className="relative">
+          <select
+            value={safeValue}
+            onChange={(e) => onSourceOutputChange(e.target.value)}
+            className={`nodrag ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-7`}
+          >
+            {availableOutputs.map((o) => (
+              <option key={o.name} value={o.name}>{o.label}</option>
+            ))}
+          </select>
+          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Connected input with literal override (dropdown + text/textarea/number so user can type) ──
+
+function ConnectedInputWithLiteral({
+  field,
+  value = '',
+  onChange,
+  connectionInfo,
+  onSourceOutputChange,
+  color,
+  hideSourceLabel = false,
+}: BlockInputProps & { connectionInfo: ConnectionInfo; onSourceOutputChange: (outputName: string) => void }) {
+  const focus = focusColorClass[color]
+  const { availableOutputs, sourceBlockLabel, currentSourceHandle } = connectionInfo
+  const safeValue =
+    availableOutputs.some((o) => o.name === currentSourceHandle)
+      ? currentSourceHandle
+      : (availableOutputs[0]?.name ?? '')
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{field.label}</label>
+      <div className="flex flex-col gap-1">
+        {!hideSourceLabel && <span className="text-[9px] text-slate-500">From {sourceBlockLabel}:</span>}
+        <div className="relative">
+          <select
+            value={safeValue}
+            onChange={(e) => onSourceOutputChange(e.target.value)}
+            className={`nodrag ${baseInput(focus)} appearance-none cursor-pointer px-2.5 py-1.5 pr-7`}
+          >
+            {availableOutputs.map((o) => (
+              <option key={o.name} value={o.name}>{o.label}</option>
+            ))}
+          </select>
+          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+        </div>
+        <span className="text-[9px] text-slate-500">Or type:</span>
+        <DropZone value={value} onChange={onChange}>
+          {field.type === 'textarea' ? (
+            <textarea
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={field.placeholder}
+              rows={field.rows ?? 2}
+              className={`nodrag ${baseInput(focus)} px-2.5 py-1.5 resize-none`}
+            />
+          ) : field.type === 'number' ? (
+            <input
+              type="number"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={field.placeholder}
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              className={`nodrag ${baseInput(focus)} px-2.5 py-1.5`}
+            />
+          ) : (
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={field.placeholder}
+              className={`nodrag ${baseInput(focus)} px-2.5 py-1.5`}
+            />
+          )}
+        </DropZone>
+      </div>
+    </div>
+  )
+}
+
 // ── Dispatcher ────────────────────────────────────────────
 
 const renderers: Record<string, React.FC<BlockInputProps>> = {
@@ -372,7 +517,37 @@ const renderers: Record<string, React.FC<BlockInputProps>> = {
   keyValue: KeyValueInput,
 }
 
+const CONNECTED_TYPES_WITH_LITERAL = ['text', 'textarea', 'number']
+
 export default function BlockInput(props: BlockInputProps) {
+  if (
+    props.connectionInfo != null &&
+    props.onSourceOutputChange != null &&
+    props.field.type !== 'walletAddress'
+  ) {
+    const allowLiteral =
+      CONNECTED_TYPES_WITH_LITERAL.includes(props.field.type) &&
+      (props.field.allowVariable !== false)
+    if (allowLiteral) {
+      return (
+        <ConnectedInputWithLiteral
+          {...props}
+          connectionInfo={props.connectionInfo}
+          onSourceOutputChange={props.onSourceOutputChange}
+          hideSourceLabel={props.hideSourceLabel}
+        />
+      )
+    }
+    return (
+      <ConnectedInputDropdown
+        field={props.field}
+        connectionInfo={props.connectionInfo}
+        onSourceOutputChange={props.onSourceOutputChange}
+        color={props.color}
+        hideSourceLabel={props.hideSourceLabel}
+      />
+    )
+  }
   const Renderer = renderers[props.field.type] ?? TextInput
   return <Renderer {...props} />
 }

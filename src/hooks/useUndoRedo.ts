@@ -6,6 +6,16 @@ interface Snapshot {
   edges: Edge[]
 }
 
+/** Dedupe nodes by id (keep first). Avoids duplicate React keys when restoring undo/redo. */
+function dedupeNodesById(nodes: Node[]): Node[] {
+  const seen = new Set<string>()
+  return nodes.filter((n) => {
+    if (seen.has(n.id)) return false
+    seen.add(n.id)
+    return true
+  })
+}
+
 const MAX_HISTORY = 50
 
 export function useUndoRedo(nodes: Node[], edges: Edge[]) {
@@ -41,7 +51,7 @@ export function useUndoRedo(nodes: Node[], edges: Edge[]) {
         nodes: JSON.parse(JSON.stringify(nodesRef.current)),
         edges: JSON.parse(JSON.stringify(edgesRef.current)),
       })
-      setNodes(snapshot.nodes)
+      setNodes(dedupeNodesById(snapshot.nodes))
       setEdges(snapshot.edges)
       rerender((c) => c + 1)
       return true
@@ -60,7 +70,7 @@ export function useUndoRedo(nodes: Node[], edges: Edge[]) {
         nodes: JSON.parse(JSON.stringify(nodesRef.current)),
         edges: JSON.parse(JSON.stringify(edgesRef.current)),
       })
-      setNodes(snapshot.nodes)
+      setNodes(dedupeNodesById(snapshot.nodes))
       setEdges(snapshot.edges)
       rerender((c) => c + 1)
       return true

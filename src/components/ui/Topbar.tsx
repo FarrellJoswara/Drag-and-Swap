@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Activity, CheckCircle, Redo2, Rocket, Trash2, Undo2 } from 'lucide-react'
+import { Activity, CheckCircle, Power, PowerOff, Redo2, Rocket, Save, Trash2, Undo2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { Edge, Node } from '@xyflow/react'
 import { buildConnectedModel } from '../../utils/buildConnectedModel'
@@ -18,6 +18,8 @@ interface TopbarProps {
   onRedo: () => boolean
   canUndo: boolean
   canRedo: boolean
+  /** When true, show unsaved indicator and warn when turning Run on */
+  hasUnsavedChanges?: boolean
 }
 
 export default function Topbar({
@@ -29,14 +31,18 @@ export default function Topbar({
   onRedo,
   canUndo,
   canRedo,
+  hasUnsavedChanges = false,
 }: TopbarProps) {
   const { toast } = useToast()
   const { authenticated, login } = usePrivy()
   const walletAddress = useWalletAddress()
-  const { addAgent, updateAgentModel, getAgentById } = useAgents()
+  const { addAgent, updateAgentModel, getAgentById, toggleActive } = useAgents()
   const [showDeployModal, setShowDeployModal] = useState(false)
   const navigate = useNavigate()
   const defaultDeployName = `Agent ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+
+  const agent = agentId ? getAgentById(agentId) : undefined
+  const isActive = agent?.isActive ?? false
 
   const doDeploy = (name?: string) => {
     if (nodes.length === 0) {
@@ -95,8 +101,33 @@ export default function Topbar({
     if (!onRedo()) toast('Nothing to redo', 'info')
   }
 
+  const handleSave = () => {
+    if (!agentId || !agent || nodes.length === 0) return
+    if (!walletAddress) {
+      toast('Connect your wallet to save', 'warning')
+      return
+    }
+    const connectedModel = buildConnectedModel(nodes, edges)
+    const flowData = { nodes, edges }
+    updateAgentModel(agentId, {
+      model: connectedModel,
+      flowData,
+      name: agent.name,
+    })
+    toast('Flow saved', 'success')
+  }
+
+  const handleToggleActive = () => {
+    if (!agentId) return
+    if (!isActive && hasUnsavedChanges) {
+      toast('Save or Redeploy to run the latest version', 'warning')
+      return
+    }
+    toggleActive(agentId)
+  }
+
   return (
-    <header className="h-12 flex-shrink-0 flex items-center justify-between px-4 bg-[#0a0a0f] border-b border-slate-800/60">
+    <header className="app-topbar">
       {/* Status indicators */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5">
@@ -160,6 +191,32 @@ export default function Topbar({
         >
           My Agents
         </Link>
+        {agentId && agent && (
+          <>
+            <button
+              onClick={handleToggleActive}
+              title={isActive ? 'Stop agent' : 'Run agent'}
+              className={`
+                flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-150
+                ${isActive ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-slate-800/80 text-slate-500 hover:bg-slate-700 hover:text-slate-300'}
+              `}
+            >
+              {isActive ? <Power size={14} className="text-emerald-400" /> : <PowerOff size={14} />}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!walletAddress || nodes.length === 0}
+              title="Save flow (stay on canvas)"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 bg-transparent hover:bg-slate-800 rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save size={12} />
+              Save
+            </button>
+            {hasUnsavedChanges && (
+              <span className="text-[10px] text-amber-500/90 font-medium">Unsaved</span>
+            )}
+          </>
+        )}
         {!authenticated ? (
           <button
             onClick={login}
@@ -171,7 +228,7 @@ export default function Topbar({
           <button
             onClick={handleDeploy}
             disabled={!walletAddress}
-            title={!walletAddress ? 'Connect wallet to deploy' : undefined}
+            title={!walletAddress ? 'Connect wallet to deploy' : agentId ? 'Redeploy and go to My Agents' : undefined}
             className="flex items-center gap-2 px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Rocket size={12} />

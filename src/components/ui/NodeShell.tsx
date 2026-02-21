@@ -10,6 +10,8 @@ interface NodeShellProps {
   badge: string
   badgeColor: BadgeColor
   selected?: boolean
+  /** When set (e.g. Output Display), use this width instead of default 220px */
+  width?: number
 }
 
 const badgeStyles: Record<BadgeColor, string> = {
@@ -39,16 +41,18 @@ const topBorderStyles: Record<BadgeColor, string> = {
   yellow: 'from-yellow-500/40 to-yellow-500/0',
 }
 
-export default function NodeShell({ children, label, icon, badge, badgeColor, selected }: NodeShellProps) {
+export default function NodeShell({ children, label, icon, badge, badgeColor, selected, width }: NodeShellProps) {
   return (
     <div
       className={[
-        'relative w-[220px] rounded-xl overflow-visible',
+        'relative rounded-xl overflow-visible',
+        width != null ? '' : 'w-[220px]',
         'bg-[#0f1117] border border-slate-800',
         'shadow-xl shadow-black/50',
         selected ? `ring-1 ${ringStyles[badgeColor]}` : '',
         'transition-all duration-150',
       ].join(' ')}
+      style={width != null ? { width: `${width}px` } : undefined}
     >
       {/* Inner container with overflow-hidden for gradient clipping */}
       <div className="overflow-hidden rounded-xl relative">

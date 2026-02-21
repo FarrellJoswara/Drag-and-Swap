@@ -46,27 +46,27 @@ export default function AgentsHome() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex flex-col">
       {/* Header */}
-      <header className="flex-shrink-0 h-14 flex items-center justify-between px-6 border-b border-slate-800/60">
+      <header className="app-topbar">
         <div className="flex items-center gap-4">
           <Link
             to="/"
-            className="flex items-center gap-2.5 text-slate-300 hover:text-slate-100 transition-colors"
+            className="flex items-center gap-2 text-slate-300 hover:text-slate-100 transition-colors"
           >
-            <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
+            <div className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
               <img src="/logo.png" alt="Dragn Swap Logo" className="w-full h-full object-contain" />
             </div>
-            <span className="text-sm font-semibold">Dragn Swap</span>
+            <span className="text-xs font-semibold">Dragn Swap</span>
           </Link>
-          <div className="h-4 w-px bg-slate-800" />
+          <div className="h-3 w-px bg-slate-800" />
           <div className="flex items-center gap-2">
-            <LayoutGrid size={16} className="text-indigo-400" />
-            <span className="text-sm font-semibold text-slate-100">
+            <LayoutGrid size={14} className="text-indigo-400" />
+            <span className="text-xs font-semibold text-slate-100">
               My Agents
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {walletAddress && (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800">
               <Wallet size={12} className="text-slate-500" />
@@ -83,9 +83,9 @@ export default function AgentsHome() {
           </button>
           <Link
             to="/new"
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors"
           >
-            <Plus size={14} />
+            <Plus size={12} />
             Create Agent
           </Link>
         </div>

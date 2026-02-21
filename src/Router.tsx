@@ -6,6 +6,7 @@ import { useAgents } from './contexts/AgentsContext'
 import { useActiveAgentRunners } from './hooks/useActiveAgentRunners'
 import { useWalletAddress } from './hooks/useWalletAddress'
 import { useSendTransaction } from './hooks/useSendTransaction'
+import { DisplayValueProvider } from './contexts/DisplayValueContext'
 
 function AgentRunners() {
   const { agents } = useAgents()
@@ -20,12 +21,14 @@ function AgentRunners() {
 export default function Router() {
   return (
     <BrowserRouter>
-      <AgentRunners />
-      <Routes>
-        <Route path="/" element={<AgentsHome />} />
-        <Route path="/new" element={<App />} />
-        <Route path="/agent/:id" element={<App />} />
-      </Routes>
+      <DisplayValueProvider>
+        <AgentRunners />
+        <Routes>
+          <Route path="/" element={<AgentsHome />} />
+          <Route path="/new" element={<App />} />
+          <Route path="/agent/:id" element={<App />} />
+        </Routes>
+      </DisplayValueProvider>
     </BrowserRouter>
   )
 }

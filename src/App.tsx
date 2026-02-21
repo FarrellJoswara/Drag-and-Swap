@@ -14,8 +14,8 @@ import {
   type EdgeChange,
   type NodeTypes,
 } from '@xyflow/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useParams, useLocation } from 'react-router-dom'
 import Sidebar from './components/sidebar/Sidebar'
 import Topbar from './components/ui/Topbar'
 import ContextMenu from './components/ui/ContextMenu'
@@ -24,6 +24,7 @@ import { useToast } from './components/ui/Toast'
 import { useUndoRedo } from './hooks/useUndoRedo'
 import { useWalletAddress } from './hooks/useWalletAddress'
 import { useAgents } from './contexts/AgentsContext'
+import { AgentIdProvider } from './contexts/AgentIdContext'
 import { getBlock, minimapColor } from './lib/blockRegistry'
 import type { BlockColor } from './lib/blockRegistry'
 import GenericNode from './components/nodes/GenericNode'
@@ -39,8 +40,13 @@ const emptyEdges: Edge[] = []
 
 let idCounter = 10
 
-function getNextId() {
-  return `node-${++idCounter}`
+/** Return a unique node id. If existingIds is provided, skips any id already in the set. */
+function getNextId(existingIds?: Set<string>): string {
+  let id: string
+  do {
+    id = `node-${++idCounter}`
+  } while (existingIds?.has(id))
+  return id
 }
 
 /** Set idCounter so the next getNextId() won't collide with loaded node IDs. */
@@ -53,9 +59,21 @@ function resetNodeIdCounterAfterLoad(nodes: Node[]) {
   if (max > 0) idCounter = max
 }
 
+/** Dedupe nodes by id (keep first). Prevents "two children with the same key" when state has duplicate ids. */
+function dedupeNodesById(nodes: Node[]): Node[] {
+  const seen = new Set<string>()
+  return nodes.filter((n) => {
+    if (seen.has(n.id)) return false
+    seen.add(n.id)
+    return true
+  })
+}
+
 const defaultEdgeOptions = {
   animated: true,
   style: { stroke: '#6366f1', strokeWidth: 2 },
+  deletable: true,
+  selectable: true,
 }
 
 interface ContextMenuState {
@@ -153,6 +171,23 @@ function validateAndFilterEdges(nodes: Node[], edges: Edge[]): Edge[] {
   })
 }
 
+/** Serialize flow for stable comparison (sort by id, minimal shape). */
+function flowSignature(nodes: Node[], edges: Edge[]): string {
+  const normNodes = [...nodes]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((n) => ({ id: n.id, type: n.type, data: n.data, position: n.position }))
+  const normEdges = [...edges]
+    .sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''))
+    .map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
+    }))
+  return JSON.stringify({ nodes: normNodes, edges: normEdges })
+}
+
 /** Ensure node positions are valid { x, y } objects; dedupe nodes/edges by id. */
 function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes: Node[]; edges: Edge[] } {
   // Dedupe nodes by id (keep first)
@@ -192,8 +227,9 @@ function normalizeFlowData(flowData: { nodes: Node[]; edges: Edge[] }): { nodes:
 
 export default function App() {
   const { id: agentId } = useParams<{ id: string }>()
+  const { pathname } = useLocation()
   const walletAddress = useWalletAddress()
-  const { getAgentById } = useAgents()
+  const { getAgentById, toggleActive } = useAgents()
   const [nodes, setNodes, onNodesChange] = useNodesState(emptyNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(emptyEdges)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -209,17 +245,38 @@ export default function App() {
   edgesRef.current = edges
   const getAgentByIdRef = useRef(getAgentById)
   getAgentByIdRef.current = getAgentById
+  const prevUnsavedRef = useRef(false)
+  /** True after we've loaded this agent's flow (or cleared for /new). Avoids auto-off on first paint before load. */
+  const hasLoadedForAgentRef = useRef(false)
 
-  // Load agent when editing, clear when creating new. Only re-run when route/wallet changes, not when agents list updates.
+  /** Dedupe by id so React Flow never sees duplicate keys (e.g. from undo or stale state). */
+  const nodesDeduped = useMemo(() => dedupeNodesById(nodes), [nodes])
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!agentId) return false
+    const agent = getAgentById(agentId)
+    if (!agent) return false
+    const stored = agent.flowData ?? modelToFlowData(agent.model)
+    return flowSignature(nodes, edges) !== flowSignature(stored.nodes, stored.edges)
+  }, [agentId, getAgentById, nodes, edges])
+
+  // Load agent when editing, clear only when on /new. Avoid clearing on agentId flicker (pathname stays /agent/:id).
   useEffect(() => {
-    if (!agentId) {
+    if (pathname === '/new') {
       setNodes(emptyNodes)
       setEdges(emptyEdges)
+      hasLoadedForAgentRef.current = true
       return
     }
-    if (!walletAddress) return
+    if (!agentId || !walletAddress) {
+      hasLoadedForAgentRef.current = false
+      return
+    }
     const agent = getAgentByIdRef.current(agentId)
-    if (!agent) return
+    if (!agent) {
+      hasLoadedForAgentRef.current = false
+      return
+    }
     const raw = agent.flowData
       ? agent.flowData
       : modelToFlowData(agent.model)
@@ -227,7 +284,24 @@ export default function App() {
     resetNodeIdCounterAfterLoad(n)
     setNodes(n)
     setEdges(e)
-  }, [agentId, walletAddress])
+    hasLoadedForAgentRef.current = true
+  }, [pathname, agentId, walletAddress])
+
+  // Reset unsaved ref when switching agents so we don't carry over transition state.
+  useEffect(() => {
+    prevUnsavedRef.current = false
+  }, [agentId])
+
+  // When user makes an edit (hasUnsavedChanges false → true) and agent is active, auto-turn off until they save.
+  // Only run after we've loaded this agent's flow (hasLoadedForAgentRef) so we don't turn off on first paint.
+  useEffect(() => {
+    if (!hasLoadedForAgentRef.current) return
+    if (hasUnsavedChanges && !prevUnsavedRef.current && agentId) {
+      const agent = getAgentByIdRef.current(agentId)
+      if (agent?.isActive) toggleActive(agentId)
+    }
+    prevUnsavedRef.current = hasUnsavedChanges
+  }, [hasUnsavedChanges, agentId, toggleActive])
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -245,6 +319,14 @@ export default function App() {
       onEdgesChange(changes)
     },
     [onEdgesChange, takeSnapshot],
+  )
+
+  const onEdgeDoubleClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      takeSnapshot()
+      setEdges((eds) => eds.filter((e) => e.id !== edge.id))
+    },
+    [takeSnapshot, setEdges],
   )
 
   const onConnect = useCallback(
@@ -329,8 +411,9 @@ export default function App() {
         }
       }
 
+      const existingIds = new Set(nodesRef.current.map((n) => n.id))
       const newNode: Node = {
-        id: getNextId(),
+        id: getNextId(existingIds),
         type: 'generic',
         position,
         data: defaultData,
@@ -372,8 +455,9 @@ export default function App() {
       const node = nodes.find((n) => n.id === nodeId)
       if (!node) return
       takeSnapshot()
+      const existingIds = new Set(nodes.map((n) => n.id))
       const newNode: Node = {
-        id: getNextId(),
+        id: getNextId(existingIds),
         type: node.type,
         position: { x: node.position.x + 30, y: node.position.y + 30 },
         data: { ...node.data },
@@ -387,11 +471,14 @@ export default function App() {
   const handleDeleteNode = useCallback(
     (nodeId: string) => {
       takeSnapshot()
-      setNodes((nds) => nds.filter((n) => n.id !== nodeId))
-      setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId))
+      const edgesToRemove = edgesRef.current.filter(
+        (e) => e.source === nodeId || e.target === nodeId,
+      )
+      onNodesChange([{ type: 'remove', id: nodeId }])
+      onEdgesChange(edgesToRemove.map((e) => ({ type: 'remove', id: e.id })))
       toast('Node deleted', 'info')
     },
-    [setNodes, setEdges, takeSnapshot, toast],
+    [onNodesChange, onEdgesChange, takeSnapshot, toast],
   )
 
   useEffect(() => {
@@ -424,13 +511,16 @@ export default function App() {
       const currentEdges = edgesRef.current
       const selected = currentNodes.filter((n) => n.selected)
 
-      // Delete selected nodes + connected edges
+      // Delete selected nodes + connected edges (use change pipeline so React Flow view updates immediately)
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selected.length === 0) return
         takeSnapshot()
         const ids = new Set(selected.map((n) => n.id))
-        setNodes((nds) => nds.filter((n) => !ids.has(n.id)))
-        setEdges((eds) => eds.filter((ed) => !ids.has(ed.source) && !ids.has(ed.target)))
+        const edgesToRemove = currentEdges.filter(
+          (ed) => ids.has(ed.source) || ids.has(ed.target),
+        )
+        onNodesChange(selected.map((n) => ({ type: 'remove', id: n.id })))
+        onEdgesChange(edgesToRemove.map((ed) => ({ type: 'remove', id: ed.id })))
         toast(`Deleted ${selected.length} node${selected.length > 1 ? 's' : ''}`, 'info')
         return
       }
@@ -462,9 +552,11 @@ export default function App() {
         e.preventDefault()
         takeSnapshot()
 
+        const existingIds = new Set(currentNodes.map((n) => n.id))
         const idMap = new Map<string, string>()
         const newNodes = clipNodes.map((n) => {
-          const newId = getNextId()
+          const newId = getNextId(existingIds)
+          existingIds.add(newId)
           idMap.set(n.id, newId)
           return {
             ...n,
@@ -478,7 +570,7 @@ export default function App() {
           .filter((ed) => idMap.has(ed.source) && idMap.has(ed.target))
           .map((ed) => ({
             ...ed,
-            id: `edge-${getNextId()}`,
+            id: `edge-${getNextId(existingIds)}`,
             source: idMap.get(ed.source)!,
             target: idMap.get(ed.target)!,
           }))
@@ -501,9 +593,11 @@ export default function App() {
         if (selected.length === 0) return
         takeSnapshot()
 
+        const existingIds = new Set(currentNodes.map((n) => n.id))
         const idMap = new Map<string, string>()
         const newNodes = selected.map((n) => {
-          const newId = getNextId()
+          const newId = getNextId(existingIds)
+          existingIds.add(newId)
           idMap.set(n.id, newId)
           return {
             ...n,
@@ -518,7 +612,7 @@ export default function App() {
           .filter((ed) => selectedIds.has(ed.source) && selectedIds.has(ed.target))
           .map((ed) => ({
             ...ed,
-            id: `edge-${getNextId()}`,
+            id: `edge-${getNextId(existingIds)}`,
             source: idMap.get(ed.source)!,
             target: idMap.get(ed.target)!,
           }))
@@ -532,115 +626,119 @@ export default function App() {
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [handleUndo, handleRedo, takeSnapshot, setNodes, setEdges, toast])
+  }, [handleUndo, handleRedo, takeSnapshot, setNodes, setEdges, onNodesChange, onEdgesChange, toast])
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0a0a0f]">
-      <MobileWarning />
-      <Sidebar />
+    <AgentIdProvider agentId={agentId}>
+      <div className="flex h-screen w-screen overflow-hidden bg-[#0a0a0f]">
+        <MobileWarning />
+        <Sidebar />
 
-      <div className="flex flex-col flex-1 min-w-0">
-        <Topbar
-          agentId={agentId}
-          nodes={nodes}
-          edges={edges}
-          onClear={handleClear}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          canUndo={canUndo}
-          canRedo={canRedo}
-        />
-
-        <div ref={reactFlowWrapper} className="flex-1 relative">
-          <ReactFlow
-            key={agentId ?? 'new'}
-            ref={reactFlowInstance as any}
+        <div className="flex flex-col flex-1 min-w-0">
+          <Topbar
+            agentId={agentId}
             nodes={nodes}
             edges={edges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onConnect={onConnect}
-            onDragOver={onDragOver}
-            onDrop={onDrop}
-            onNodeDragStart={onNodeDragStart}
-            onNodeContextMenu={onNodeContextMenu}
-            nodeTypes={nodeTypes}
-            defaultEdgeOptions={defaultEdgeOptions}
-            fitView
-            fitViewOptions={{ padding: 0.3 }}
-            deleteKeyCode={['Backspace', 'Delete']}
-            proOptions={{ hideAttribution: true }}
-            className="bg-[#0a0a0f]"
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={20}
-              size={1}
-              color="#1e293b"
-            />
-            <Controls showInteractive={false} />
-            <MiniMap
-              nodeColor={(n) => {
-                const bt = n.data?.blockType as string | undefined
-                if (bt) {
-                  const def = getBlock(bt)
-                  if (def) return minimapColor[def.color as BlockColor] ?? '#334155'
-                }
-                return '#334155'
-              }}
-              maskColor="rgba(10,10,15,0.85)"
-              style={{ bottom: 16, right: 16 }}
-            />
-          </ReactFlow>
+            onClear={handleClear}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            hasUnsavedChanges={hasUnsavedChanges}
+          />
 
-          {/* Color legend for minimap - positioned above the minimap */}
-          <div
-            className="absolute flex flex-col gap-1 rounded-lg bg-slate-900/95 border border-slate-700/80 px-2.5 py-2 pointer-events-none"
-            style={{ bottom: 15, left: 100 }}
-          >
-            <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Block colors</span>
-            <div className="flex flex-wrap gap-x-3 gap-y-1">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#eab308' }} />
-                <span className="text-[10px] text-slate-400">General</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#059669' }} />
-                <span className="text-[10px] text-slate-400">QuickNode / Hyperliquid</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f43f5e' }} />
-                <span className="text-[10px] text-slate-400">Uniswap</span>
-              </div>
-            </div>
-          </div>
+          <div ref={reactFlowWrapper} className="flex-1 relative">
+            <ReactFlow
+              key={agentId ?? 'new'}
+              ref={reactFlowInstance as any}
+              nodes={nodesDeduped}
+              edges={edges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              onConnect={onConnect}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              onNodeDragStart={onNodeDragStart}
+              onNodeContextMenu={onNodeContextMenu}
+              onEdgeDoubleClick={onEdgeDoubleClick}
+              nodeTypes={nodeTypes}
+              defaultEdgeOptions={defaultEdgeOptions}
+              fitView
+              fitViewOptions={{ padding: 0.3 }}
+              deleteKeyCode={['Backspace', 'Delete']}
+              proOptions={{ hideAttribution: true }}
+              className="bg-[#0a0a0f]"
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1}
+                color="#1e293b"
+              />
+              <Controls showInteractive={false} />
+              <MiniMap
+                nodeColor={(n) => {
+                  const bt = n.data?.blockType as string | undefined
+                  if (bt) {
+                    const def = getBlock(bt)
+                    if (def) return minimapColor[def.color as BlockColor] ?? '#334155'
+                  }
+                  return '#334155'
+                }}
+                maskColor="rgba(10,10,15,0.85)"
+                style={{ bottom: 16, right: 16 }}
+              />
+            </ReactFlow>
 
-          {nodes.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto mb-4">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 5v14M5 12h14" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
+            {/* Color legend for minimap - positioned above the minimap */}
+            <div
+              className="absolute flex flex-col gap-1 rounded-lg bg-slate-900/95 border border-slate-700/80 px-2.5 py-2 pointer-events-none"
+              style={{ bottom: 15, left: 100 }}
+            >
+              <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Block colors</span>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#eab308' }} />
+                  <span className="text-[10px] text-slate-400">General</span>
                 </div>
-                <p className="text-sm font-medium text-slate-600">Drop blocks here to start</p>
-                <p className="text-xs text-slate-700 mt-1">Drag from the sidebar to build your agent</p>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#059669' }} />
+                  <span className="text-[10px] text-slate-400">QuickNode / Hyperliquid</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f43f5e' }} />
+                  <span className="text-[10px] text-slate-400">Uniswap</span>
+                </div>
               </div>
             </div>
-          )}
 
-          {contextMenu && (
-            <ContextMenu
-              x={contextMenu.x}
-              y={contextMenu.y}
-              nodeId={contextMenu.nodeId}
-              onClose={() => setContextMenu(null)}
-              onDuplicate={handleDuplicate}
-              onDelete={handleDeleteNode}
-            />
-          )}
+            {nodes.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto mb-4">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 5v14M5 12h14" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-medium text-slate-600">Drop blocks here to start</p>
+                  <p className="text-xs text-slate-700 mt-1">Drag from the sidebar to build your agent</p>
+                </div>
+              </div>
+            )}
+
+            {contextMenu && (
+              <ContextMenu
+                x={contextMenu.x}
+                y={contextMenu.y}
+                nodeId={contextMenu.nodeId}
+                onClose={() => setContextMenu(null)}
+                onDuplicate={handleDuplicate}
+                onDelete={handleDeleteNode}
+              />
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </AgentIdProvider>
   )
 }

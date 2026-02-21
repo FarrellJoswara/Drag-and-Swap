@@ -42,6 +42,11 @@ export type RunContext = {
   sendTransaction?: ((tx: SwapTx) => Promise<string>) | null
 }
 
+export type RunOptions = {
+  /** When a streamDisplay node completes, called with its node id and lastEvent value (for TV preview). */
+  onDisplayUpdate?: (nodeId: string, value: string) => void
+}
+
 /**
  * Run all downstream nodes from a trigger. Resolves inputs from upstream outputs
  * and variable refs {{nodeId.outputName}}. Modular: triggers don't need to know
@@ -52,6 +57,7 @@ export async function runDownstreamGraph(
   triggerNodeId: string,
   triggerOutputs: Record<string, string>,
   context?: RunContext,
+  options?: RunOptions,
 ): Promise<void> {
   const outputs = new Map<string, Record<string, string>>()
   outputs.set(triggerNodeId, triggerOutputs)
@@ -104,13 +110,16 @@ export async function runDownstreamGraph(
         if (srcOuts) {
           const outName = conn.sourceHandle ?? Object.keys(srcOuts)[0]
           const connectedVal = srcOuts[outName] ?? val
-          // If connected value is invalid for number fields (e.g. "true" from trigger), fall back to stored value
-          if (field.type === 'number' && connectedVal) {
-            const n = Number(connectedVal)
-            if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
-            else val = connectedVal
+          if (storedVal.trim() !== '') {
+            val = storedVal
           } else {
-            val = connectedVal
+            if (field.type === 'number' && connectedVal) {
+              const n = Number(connectedVal)
+              if (!Number.isFinite(n) || n <= 0) val = storedVal || (field.defaultValue ?? '')
+              else val = connectedVal
+            } else {
+              val = connectedVal
+            }
           }
         }
       }
@@ -129,6 +138,10 @@ export async function runDownstreamGraph(
       const result = await def.run(inputs, context)
       outputs.set(nodeId, result)
       processed.add(nodeId)
+      if (def.type === 'streamDisplay' && options?.onDisplayUpdate) {
+        const val = (result as { lastEvent?: string }).lastEvent
+        options.onDisplayUpdate(nodeId, typeof val === 'string' ? val : '')
+      }
       console.log(`[runAgent] Ran ${def.type} (${nodeId}):`, result)
       for (const out of node.outputs) {
         if (!processed.has(out.targetNodeId) && !queue.includes(out.targetNodeId)) {
@@ -141,6 +154,11 @@ export async function runDownstreamGraph(
   }
 }
 
+export type SubscribeOptions = {
+  /** When a streamDisplay node completes, called with its node id and lastEvent value (for TV preview). */
+  onDisplayUpdate?: (nodeId: string, value: string) => void
+}
+
 /**
  * Subscribes to an agent's interrupt-based triggers. When a trigger fires,
  * runs the downstream graph and calls onTrigger. Returns cleanup.
@@ -150,14 +168,20 @@ export function subscribeToAgent(
   model: ConnectedModel,
   onTrigger: (payload: TriggerPayload) => void,
   context?: RunContext,
+  subscribeOptions?: SubscribeOptions,
 ): () => void {
   const cleanups: Array<() => void> = []
+  const runOptions: RunOptions | undefined =
+    subscribeOptions?.onDisplayUpdate
+      ? { onDisplayUpdate: subscribeOptions.onDisplayUpdate }
+      : undefined
 
   for (const node of model.nodes) {
     const blockType = (node.data?.blockType as string) ?? (node.type as string)
     const def = getBlock(blockType)
     if (!def?.subscribe || def.category !== 'trigger') continue
 
+    console.log('[runAgent] Subscribing to trigger:', blockType, 'nodeId:', node.id)
     const inputs: Record<string, string> = {}
     for (const field of def.inputs) {
       const val = node.data[field.name]
@@ -166,7 +190,7 @@ export function subscribeToAgent(
 
     const unsub = def.subscribe!(inputs, (outputs) => {
       const payload: TriggerPayload = { agentId, nodeId: node.id, outputs }
-      runDownstreamGraph(model, node.id, outputs, context).catch((err) =>
+      runDownstreamGraph(model, node.id, outputs, context, runOptions).catch((err) =>
         console.error('[runAgent] Downstream execution failed:', err),
       )
       onTrigger(payload)
