@@ -24,7 +24,6 @@
 
 import { registerBlock } from './blockRegistry'
 import { getHyperliquidStreamOutputs } from './hyperliquidStreamOutputs'
-import { recentTrades, bookSnapshot, recentEvents } from '../services/hyperliquid'
 import {
   buildFiltersFromSpec,
   validateFilterLimits,
@@ -36,77 +35,7 @@ import {
   normalizeStreamEventToUnifiedOutputs,
 } from '../services/hyperliquid/streams'
 import { swap, blockInputsToApiParams, getQuote } from '../services/uniswap'
-import { webhook, timeLoop, delayTimer, valueFilter, sendToken, manualTrigger } from '../services/general'
-
-// ─── Hyperliquid Blocks (QuickNode Data Streams) ───────────
-
-registerBlock({
-  type: 'recentTrades',
-  label: 'Recent Trades',
-  description: 'Fetch recent trades for a coin via Hyperliquid JSON-RPC.',
-  category: 'filter',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'activity',
-  inputs: [
-    { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL', 'HYPE'], defaultValue: 'BTC', allowVariable: true },
-    { name: 'count', label: 'Block Count', type: 'number', placeholder: '10', defaultValue: '10', min: 1, max: 200 },
-  ],
-  outputs: [
-    { name: 'trades', label: 'Trade Data (JSON)' },
-    { name: 'tradeCount', label: 'Trade Count' },
-    { name: 'lastPrice', label: 'Last Price' },
-  ],
-  run: async (inputs) => recentTrades(inputs),
-})
-
-registerBlock({
-  type: 'bookSnapshot',
-  label: 'Book Snapshot',
-  description: 'Fetch recent order book updates from Hyperliquid. Stream name: book.',
-  category: 'filter',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'barChart',
-  inputs: [
-    { name: 'coin', label: 'Coin', type: 'tokenSelect', tokens: ['BTC', 'ETH', 'SOL'], defaultValue: 'BTC', allowVariable: true },
-    { name: 'count', label: 'Block Count', type: 'number', placeholder: '5', defaultValue: '5', min: 1, max: 200 },
-  ],
-  outputs: [
-    { name: 'updates', label: 'Updates (JSON)' },
-    { name: 'updateCount', label: 'Update Count' },
-    { name: 'bestBid', label: 'Best Bid' },
-    { name: 'bestAsk', label: 'Best Ask' },
-    { name: 'spread', label: 'Spread' },
-  ],
-  run: async (inputs) => bookSnapshot(inputs),
-})
-
-registerBlock({
-  type: 'recentEvents',
-  label: 'Recent Events',
-  description: 'Fetch recent events from Hyperliquid. Filter by type for mid-flow checks.',
-  category: 'filter',
-  service: 'hyperliquid',
-  color: 'emerald',
-  icon: 'filter',
-  inputs: [
-    {
-      name: 'eventType',
-      label: 'Event Type',
-      type: 'select',
-      options: ['deposit', 'withdraw', 'send', 'spotTransfer', 'vaultDeposit', 'vaultWithdraw', 'funding', 'all'],
-      defaultValue: 'all',
-    },
-    { name: 'count', label: 'Block Count', type: 'number', placeholder: '10', defaultValue: '10', min: 1, max: 200 },
-  ],
-  outputs: [
-    { name: 'events', label: 'Events (JSON)' },
-    { name: 'eventCount', label: 'Event Count' },
-    { name: 'passed', label: 'Has Events' },
-  ],
-  run: async (inputs) => recentEvents(inputs),
-})
+import { webhook, timeLoop } from '../services/general'
 
 // ─── Unified Hyperliquid Stream Block ───────────────────
 
@@ -497,57 +426,6 @@ registerBlock({
   },
 })
 
-// ─── Filter Blocks ───────────────────────────────────────
-
-registerBlock({
-  type: 'valueFilter',
-  label: 'Value Filter',
-  description: 'Filter by transaction value',
-  category: 'filter',
-  color: 'yellow',
-  icon: 'filter',
-  inputs: [
-    {
-      name: 'minValue',
-      label: 'Min Value',
-      type: 'number',
-      placeholder: '0',
-      allowVariable: true,
-      accepts: ['number', 'string'],
-    },
-    {
-      name: 'maxValue',
-      label: 'Max Value',
-      type: 'number',
-      placeholder: '1000000',
-      allowVariable: true,
-      accepts: ['number', 'string'],
-    },
-    { name: 'passThrough', label: 'Pass All Data Through', type: 'toggle', defaultValue: 'true' },
-  ],
-  outputs: [
-    { name: 'passed', label: 'Passed Filter' },
-    { name: 'value', label: 'Matched Value' },
-  ],
-  run: async (inputs) => valueFilter(inputs),
-})
-
-
-registerBlock({
-  type: 'delayTimer',
-  label: 'Delay Timer',
-  description: 'Wait before continuing the flow',
-  category: 'filter',
-  color: 'yellow',
-  icon: 'clock',
-  inputs: [
-    { name: 'seconds', label: 'Delay (seconds)', type: 'slider', min: 1, max: 300, step: 1, defaultValue: '10' },
-  ],
-  outputs: [
-    { name: 'elapsed', label: 'Time Elapsed' },
-  ],
-  run: async (inputs) => delayTimer(inputs),
-})
 
 // ─── Utility Blocks ──────────────────────────────────────
 
@@ -570,26 +448,6 @@ registerBlock({
     { name: 'response', label: 'Response Body' },
   ],
   run: async (inputs) => webhook(inputs),
-})
-
-registerBlock({
-  type: 'sendToken',
-  label: 'Send Token',
-  description: 'Transfer tokens to an address',
-  category: 'action',
-  color: 'yellow',
-  icon: 'send',
-  inputs: [
-    { name: 'token', label: 'Token', type: 'tokenSelect', defaultValue: 'ETH' },
-    { name: 'toAddress', label: 'Recipient', type: 'address', allowVariable: true },
-    { name: 'amount', label: 'Amount', type: 'number', placeholder: '0.1', allowVariable: true },
-    { name: 'confirmBeforeSend', label: 'Require Confirmation', type: 'toggle', defaultValue: 'true' },
-  ],
-  outputs: [
-    { name: 'txHash', label: 'Transaction Hash' },
-    { name: 'gasUsed', label: 'Gas Used' },
-  ],
-  run: async (inputs) => sendToken(inputs),
 })
 
 registerBlock({
@@ -625,6 +483,6 @@ registerBlock({
   outputs: [
     { name: 'triggered', label: 'Triggered' },
   ],
-  run: async (inputs) => manualTrigger(inputs),
+  run: async () => ({ triggered: 'true' }),
 })
 
